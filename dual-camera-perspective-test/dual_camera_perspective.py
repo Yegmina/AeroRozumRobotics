@@ -183,51 +183,84 @@ class DirectShowCamera:
 class MatchResult:
     canvas: np.ndarray
     homography: np.ndarray | None
+    raw_homography: np.ndarray | None
     keypoints_left: int
     keypoints_right: int
     good_matches: int
     inliers: int
+    inlier_ratio: float
+    state: str
 
 
 class PerspectiveMatcher:
-    def __init__(self, max_features: int, ratio: float, min_matches: int, ransac_px: float):
-        self.orb = cv2.ORB_create(nfeatures=max_features, fastThreshold=7)
+    def __init__(
+        self,
+        max_features: int,
+        ratio: float,
+        min_matches: int,
+        min_inlier_ratio: float,
+        ransac_px: float,
+        smoothing: float,
+        hold_frames: int,
+        max_corner_shift: float,
+    ):
+        self.orb = cv2.ORB_create(
+            nfeatures=max_features,
+            scaleFactor=1.2,
+            nlevels=8,
+            edgeThreshold=15,
+            patchSize=31,
+            fastThreshold=5,
+        )
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.ratio = ratio
         self.min_matches = min_matches
+        self.min_inlier_ratio = min_inlier_ratio
         self.ransac_px = ransac_px
+        self.smoothing = smoothing
+        self.hold_frames = hold_frames
+        self.max_corner_shift = max_corner_shift
+        self._stable_homography: np.ndarray | None = None
+        self._frames_since_good = hold_frames + 1
 
     def match(self, left: np.ndarray, right: np.ndarray) -> MatchResult:
-        gray_left = cv2.cvtColor(left, cv2.COLOR_BGR2GRAY)
-        gray_right = cv2.cvtColor(right, cv2.COLOR_BGR2GRAY)
+        gray_left = self._prepare_gray(left)
+        gray_right = self._prepare_gray(right)
         kp_left, des_left = self.orb.detectAndCompute(gray_left, None)
         kp_right, des_right = self.orb.detectAndCompute(gray_right, None)
 
         if des_left is None or des_right is None or len(kp_left) < 2 or len(kp_right) < 2:
             canvas = side_by_side(left, right)
-            return MatchResult(canvas, None, len(kp_left), len(kp_right), 0, 0)
+            homography, state = self._held_homography()
+            return MatchResult(canvas, homography, None, len(kp_left), len(kp_right), 0, 0, 0.0, state)
 
-        pairs = self.matcher.knnMatch(des_left, des_right, k=2)
-        good = []
-        for pair in pairs:
-            if len(pair) != 2:
-                continue
-            first, second = pair
-            if first.distance < self.ratio * second.distance:
-                good.append(first)
-        good = sorted(good, key=lambda m: m.distance)
+        good = self._symmetric_ratio_matches(des_left, des_right)
 
         homography = None
+        raw_homography = None
         inlier_mask = None
         inliers = 0
+        inlier_ratio = 0.0
+        state = "WAIT"
         if len(good) >= self.min_matches:
             src = np.float32([kp_left[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
             dst = np.float32([kp_right[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-            homography, inlier_mask = cv2.findHomography(src, dst, cv2.RANSAC, self.ransac_px)
+            raw_homography, inlier_mask = cv2.findHomography(src, dst, cv2.RANSAC, self.ransac_px)
             if inlier_mask is not None:
                 inliers = int(inlier_mask.sum())
-            if inliers < self.min_matches:
-                homography = None
+                inlier_ratio = inliers / max(len(good), 1)
+            if (
+                raw_homography is not None
+                and inliers >= self.min_matches
+                and inlier_ratio >= self.min_inlier_ratio
+                and self._homography_is_reasonable(raw_homography, left.shape, right.shape)
+            ):
+                homography = self._update_stable_homography(raw_homography, left.shape)
+                state = "LOCK"
+
+        if homography is None:
+            homography, state = self._held_homography()
 
         draw_matches = good[:100]
         matches_mask = None
@@ -245,7 +278,95 @@ class PerspectiveMatcher:
             matchesMask=matches_mask,
             flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
         )
-        return MatchResult(canvas, homography, len(kp_left), len(kp_right), len(good), inliers)
+        return MatchResult(
+            canvas,
+            homography,
+            raw_homography,
+            len(kp_left),
+            len(kp_right),
+            len(good),
+            inliers,
+            inlier_ratio,
+            state,
+        )
+
+    def _prepare_gray(self, frame: np.ndarray) -> np.ndarray:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return self.clahe.apply(gray)
+
+    def _symmetric_ratio_matches(self, des_left: np.ndarray, des_right: np.ndarray) -> list[cv2.DMatch]:
+        forward = self._ratio_matches(des_left, des_right)
+        backward = self._ratio_matches(des_right, des_left)
+        reverse_pairs = {(m.trainIdx, m.queryIdx) for m in backward}
+        symmetric = [m for m in forward if (m.queryIdx, m.trainIdx) in reverse_pairs]
+        return sorted(symmetric, key=lambda m: m.distance)
+
+    def _ratio_matches(self, source: np.ndarray, target: np.ndarray) -> list[cv2.DMatch]:
+        pairs = self.matcher.knnMatch(source, target, k=2)
+        good = []
+        for pair in pairs:
+            if len(pair) != 2:
+                continue
+            first, second = pair
+            if first.distance < self.ratio * second.distance:
+                good.append(first)
+        return good
+
+    def _update_stable_homography(self, raw_homography: np.ndarray, left_shape: tuple[int, ...]) -> np.ndarray:
+        raw = raw_homography / raw_homography[2, 2]
+        if self._stable_homography is None:
+            self._stable_homography = raw
+        else:
+            previous = self._stable_homography / self._stable_homography[2, 2]
+            if self._corner_shift(previous, raw, left_shape) > self.max_corner_shift:
+                self._frames_since_good += 1
+                return previous
+            alpha = float(np.clip(self.smoothing, 0.0, 1.0))
+            smoothed = previous * alpha + raw * (1.0 - alpha)
+            self._stable_homography = smoothed / smoothed[2, 2]
+        self._frames_since_good = 0
+        return self._stable_homography
+
+    def _held_homography(self) -> tuple[np.ndarray | None, str]:
+        if self._stable_homography is None:
+            return None, "WAIT"
+        self._frames_since_good += 1
+        if self._frames_since_good <= self.hold_frames:
+            return self._stable_homography, "HOLD"
+        return None, "WAIT"
+
+    def _homography_is_reasonable(
+        self,
+        homography: np.ndarray,
+        left_shape: tuple[int, ...],
+        right_shape: tuple[int, ...],
+    ) -> bool:
+        if homography.shape != (3, 3) or not np.all(np.isfinite(homography)):
+            return False
+        h_left, w_left = left_shape[:2]
+        h_right, w_right = right_shape[:2]
+        corners = np.float32([[0, 0], [w_left, 0], [w_left, h_left], [0, h_left]]).reshape(-1, 1, 2)
+        projected = cv2.perspectiveTransform(corners, homography).reshape(-1, 2)
+        if not np.all(np.isfinite(projected)):
+            return False
+        area = abs(cv2.contourArea(projected.astype(np.float32)))
+        source_area = float(w_left * h_left)
+        if area < source_area * 0.05 or area > source_area * 8.0:
+            return False
+        bounds = np.array([[-w_right * 1.5, -h_right * 1.5], [w_right * 2.5, h_right * 2.5]])
+        return bool(
+            np.all(projected[:, 0] >= bounds[0, 0])
+            and np.all(projected[:, 0] <= bounds[1, 0])
+            and np.all(projected[:, 1] >= bounds[0, 1])
+            and np.all(projected[:, 1] <= bounds[1, 1])
+        )
+
+    def _corner_shift(self, previous: np.ndarray, current: np.ndarray, left_shape: tuple[int, ...]) -> float:
+        h, w = left_shape[:2]
+        corners = np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2)
+        prev_projected = cv2.perspectiveTransform(corners, previous).reshape(-1, 2)
+        curr_projected = cv2.perspectiveTransform(corners, current).reshape(-1, 2)
+        return float(np.max(np.linalg.norm(prev_projected - curr_projected, axis=1)))
 
 
 def side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:
@@ -274,7 +395,16 @@ def draw_warp_panel(left: np.ndarray, right: np.ndarray, homography: np.ndarray 
 def run(args) -> None:
     left_cfg = CameraConfig("LEFT", args.left_device, args.width, args.height, args.fps)
     right_cfg = CameraConfig("RIGHT", args.right_device, args.width, args.height, args.fps)
-    matcher = PerspectiveMatcher(args.max_features, args.ratio, args.min_matches, args.ransac_px)
+    matcher = PerspectiveMatcher(
+        args.max_features,
+        args.ratio,
+        args.min_matches,
+        args.min_inlier_ratio,
+        args.ransac_px,
+        args.smoothing,
+        args.hold_frames,
+        args.max_corner_shift,
+    )
 
     window = "Dual robo arm perspective matcher"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
@@ -301,7 +431,7 @@ def run(args) -> None:
             status = (
                 f"kp L/R={result.keypoints_left}/{result.keypoints_right} "
                 f"matches={result.good_matches} inliers={result.inliers} "
-                f"H={'OK' if result.homography is not None else 'WAIT'} fps={shown_fps:.1f}"
+                f"ratio={result.inlier_ratio:.2f} H={result.state} fps={shown_fps:.1f}"
             )
             label(result.canvas, "LEFT", (12, 28))
             label(result.canvas, "RIGHT", (left.shape[1] + 12, 28))
@@ -326,9 +456,13 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--max-features", type=int, default=1800)
-    parser.add_argument("--ratio", type=float, default=0.75)
-    parser.add_argument("--min-matches", type=int, default=12)
-    parser.add_argument("--ransac-px", type=float, default=4.0)
+    parser.add_argument("--ratio", type=float, default=0.72)
+    parser.add_argument("--min-matches", type=int, default=16)
+    parser.add_argument("--min-inlier-ratio", type=float, default=0.35)
+    parser.add_argument("--ransac-px", type=float, default=3.0)
+    parser.add_argument("--smoothing", type=float, default=0.82, help="Higher keeps the perspective estimate steadier.")
+    parser.add_argument("--hold-frames", type=int, default=20, help="Keep the last good homography briefly when matches drop.")
+    parser.add_argument("--max-corner-shift", type=float, default=120.0, help="Reject sudden homography jumps in pixels.")
     run(parser.parse_args())
 
 

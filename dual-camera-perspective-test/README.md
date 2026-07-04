@@ -21,3 +21,16 @@ This is feature-based perspective matching. It works best when both cameras see
 the same textured object or surface. Plain objects, motion blur, reflections,
 and very different viewpoints can reduce or prevent matches.
 
+Stability behavior:
+
+- symmetric ORB feature matching filters one-way false matches,
+- RANSAC rejects outlier point pairs,
+- homography estimates must pass inlier-ratio and geometry sanity checks,
+- the accepted perspective is smoothed over time,
+- the last good perspective is held briefly if a frame has weak matches.
+
+Useful tuning flags:
+
+```powershell
+py -3 dual_camera_perspective.py --min-matches 20 --min-inlier-ratio 0.4 --smoothing 0.88
+```
