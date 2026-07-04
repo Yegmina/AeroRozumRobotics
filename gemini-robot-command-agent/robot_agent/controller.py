@@ -20,9 +20,9 @@ class RobotController:
         self.config = config
         self.state = RobotState(
             positions={name: joint.home for name, joint in config.joints.items()},
-            motion_enabled=enable_motion and not config.motion.dry_run,
+            motion_enabled=enable_motion,
         )
-        dry_run = (not enable_motion) or config.motion.dry_run
+        dry_run = not enable_motion
         if config.serial.protocol != "lewansoul_lx16a":
             raise ValueError(f"Unsupported servo protocol: {config.serial.protocol}")
         self.bus = LewanSoulLX16ABus(

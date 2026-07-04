@@ -26,6 +26,10 @@ Real servo writes are disabled unless you launch:
 py -3 app.py --enable-motion
 ```
 
+The `--enable-motion` flag is the final hardware-enable switch. The joint
+limits in `servo_config.json` are still applied before any serial packet is
+written.
+
 ## Environment
 
 The app loads `GEMINI_API_KEY` or `GOOGLE_API_KEY` from the environment or from
