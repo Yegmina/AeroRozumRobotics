@@ -13,7 +13,7 @@ py -3 dual_camera_perspective.py
 
 The top half of the window shows both feeds side by side with lines between
 matched points. The bottom half shows the right feed next to a blended
-right-feed + warped-left-feed view when a homography is available.
+right-feed + warped-left-feed view when a planar homography is available.
 
 Press `q` or `Esc` to quit. Press `r` to reset the locked perspective and
 recalibrate from the live feeds.
@@ -30,6 +30,8 @@ Stability behavior:
 - the accepted perspective is smoothed over time,
 - after several stable frames, fixed inlier anchor lines are locked,
 - locked anchor lines stay in the same places instead of jumping every frame.
+- if homography fails because the shared object is not planar, a fundamental
+  matrix fallback can still lock stable correspondence lines.
 
 Useful tuning flags:
 
@@ -37,6 +39,10 @@ Useful tuning flags:
 py -3 dual_camera_perspective.py --min-matches 20 --min-inlier-ratio 0.4 --smoothing 0.88
 ```
 
-If the scene is static but the points jump, wait for `H=LOCKED`. Before lock,
-the display is still showing live acquisition matches. After lock, only the
-frozen anchor correspondences are drawn.
+If the scene is static but the points jump, wait for `H=H_LOCKED` or
+`H=F_LOCKED`. Before lock, the display is still showing live acquisition
+matches. After lock, only the frozen anchor correspondences are drawn.
+
+`H_LOCKED` means the tool also has a planar perspective warp. `F_LOCKED` means
+it found stable cross-camera correspondences, but a planar warp is not valid for
+the current object/viewpoint.

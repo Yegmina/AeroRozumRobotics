@@ -194,9 +194,42 @@ class MatchResult:
     anchors: int
 
 
+def create_feature_stack(detector: str, max_features: int):
+    choice = detector.lower()
+    if choice == "auto":
+        if hasattr(cv2, "SIFT_create"):
+            choice = "sift"
+        elif hasattr(cv2, "AKAZE_create"):
+            choice = "akaze"
+        else:
+            choice = "orb"
+
+    if choice == "sift":
+        feature_detector = cv2.SIFT_create(nfeatures=max_features, contrastThreshold=0.025, edgeThreshold=12)
+        return "SIFT", feature_detector, cv2.BFMatcher(cv2.NORM_L2)
+
+    if choice == "akaze":
+        feature_detector = cv2.AKAZE_create(threshold=0.0008)
+        return "AKAZE", feature_detector, cv2.BFMatcher(cv2.NORM_HAMMING)
+
+    if choice == "orb":
+        feature_detector = cv2.ORB_create(
+            nfeatures=max_features,
+            scaleFactor=1.2,
+            nlevels=8,
+            edgeThreshold=15,
+            patchSize=31,
+            fastThreshold=5,
+        )
+        return "ORB", feature_detector, cv2.BFMatcher(cv2.NORM_HAMMING)
+
+    raise ValueError(f"Unknown detector '{detector}'. Use auto, sift, akaze, or orb.")
+
+
 class PerspectiveMatcher:
     def __init__(
         self,
+        detector: str,
         max_features: int,
         ratio: float,
         min_matches: int,
@@ -208,42 +241,41 @@ class PerspectiveMatcher:
         lock_after: int,
         max_anchors: int,
         anchor_min_spacing: float,
+        mutual_check: bool,
     ):
-        self.orb = cv2.ORB_create(
-            nfeatures=max_features,
-            scaleFactor=1.2,
-            nlevels=8,
-            edgeThreshold=15,
-            patchSize=31,
-            fastThreshold=5,
-        )
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.detector_name, self.detector, self.matcher = create_feature_stack(detector, max_features)
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.ratio = ratio
         self.min_matches = min_matches
         self.min_inlier_ratio = min_inlier_ratio
         self.ransac_px = ransac_px
+        self.ransac_method = getattr(cv2, "USAC_MAGSAC", cv2.RANSAC)
         self.smoothing = smoothing
         self.hold_frames = hold_frames
         self.max_corner_shift = max_corner_shift
         self.lock_after = lock_after
         self.max_anchors = max_anchors
         self.anchor_min_spacing = anchor_min_spacing
+        self.mutual_check = mutual_check
         self._stable_homography: np.ndarray | None = None
         self._locked_homography: np.ndarray | None = None
         self._locked_anchors: list[tuple[tuple[int, int], tuple[int, int]]] = []
+        self._locked_mode: str | None = None
         self._stable_frames = 0
+        self._fundamental_frames = 0
         self._frames_since_good = hold_frames + 1
 
     def reset(self) -> None:
         self._stable_homography = None
         self._locked_homography = None
         self._locked_anchors = []
+        self._locked_mode = None
         self._stable_frames = 0
+        self._fundamental_frames = 0
         self._frames_since_good = self.hold_frames + 1
 
     def match(self, left: np.ndarray, right: np.ndarray) -> MatchResult:
-        if self._locked_homography is not None:
+        if self._locked_mode is not None:
             canvas = draw_anchor_matches(left, right, self._locked_anchors)
             return MatchResult(
                 canvas,
@@ -254,22 +286,22 @@ class PerspectiveMatcher:
                 0,
                 0,
                 0.0,
-                "LOCKED",
+                self._locked_mode,
                 self._stable_frames,
                 len(self._locked_anchors),
             )
 
         gray_left = self._prepare_gray(left)
         gray_right = self._prepare_gray(right)
-        kp_left, des_left = self.orb.detectAndCompute(gray_left, None)
-        kp_right, des_right = self.orb.detectAndCompute(gray_right, None)
+        kp_left, des_left = self.detector.detectAndCompute(gray_left, None)
+        kp_right, des_right = self.detector.detectAndCompute(gray_right, None)
 
         if des_left is None or des_right is None or len(kp_left) < 2 or len(kp_right) < 2:
             canvas = side_by_side(left, right)
             homography, state = self._held_homography()
             return MatchResult(canvas, homography, None, len(kp_left), len(kp_right), 0, 0, 0.0, state, self._stable_frames, 0)
 
-        good = self._symmetric_ratio_matches(des_left, des_right)
+        good = self._matches(des_left, des_right)
 
         homography = None
         raw_homography = None
@@ -280,30 +312,48 @@ class PerspectiveMatcher:
         if len(good) >= self.min_matches:
             src = np.float32([kp_left[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
             dst = np.float32([kp_right[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-            raw_homography, inlier_mask = cv2.findHomography(src, dst, cv2.RANSAC, self.ransac_px)
+            raw_homography, inlier_mask = cv2.findHomography(src, dst, self.ransac_method, self.ransac_px)
             if inlier_mask is not None:
                 inliers = int(inlier_mask.sum())
                 inlier_ratio = inliers / max(len(good), 1)
-            if (
+            homography_accepted = (
                 raw_homography is not None
                 and inliers >= self.min_matches
                 and inlier_ratio >= self.min_inlier_ratio
                 and self._homography_is_reasonable(raw_homography, left.shape, right.shape)
-            ):
+            )
+            if homography_accepted:
                 homography = self._update_stable_homography(raw_homography, left.shape)
                 state = "ACQUIRE"
                 anchors = self._build_anchors(kp_left, kp_right, good, inlier_mask)
                 if self._stable_frames >= self.lock_after and len(anchors) >= min(self.min_matches, self.max_anchors):
                     self._locked_homography = homography
                     self._locked_anchors = anchors
-                    state = "LOCKED"
+                    self._locked_mode = "H_LOCKED"
+                    state = self._locked_mode
+            else:
+                f_anchors, f_inliers, f_ratio = self._fundamental_anchors(kp_left, kp_right, good)
+                if f_inliers >= self.min_matches and f_ratio >= self.min_inlier_ratio and len(f_anchors) >= min(self.min_matches, self.max_anchors):
+                    self._fundamental_frames += 1
+                    inliers = f_inliers
+                    inlier_ratio = f_ratio
+                    state = "F_ACQUIRE"
+                    if self._fundamental_frames >= self.lock_after:
+                        self._locked_homography = None
+                        self._locked_anchors = f_anchors
+                        self._locked_mode = "F_LOCKED"
+                        state = self._locked_mode
+                else:
+                    self._fundamental_frames = 0
 
-        if homography is None:
+        if homography is None and state != "F_ACQUIRE":
             homography, state = self._held_homography()
-            if state == "WAIT":
+            if self._locked_mode is not None:
+                state = self._locked_mode
+            elif state == "WAIT":
                 self._stable_frames = 0
 
-        if self._locked_homography is not None:
+        if self._locked_mode is not None:
             canvas = draw_anchor_matches(left, right, self._locked_anchors)
         else:
             draw_matches = good[:100]
@@ -368,6 +418,19 @@ class PerspectiveMatcher:
                 break
         return anchors
 
+    def _fundamental_anchors(self, kp_left, kp_right, matches: list[cv2.DMatch]):
+        src = np.float32([kp_left[m.queryIdx].pt for m in matches])
+        dst = np.float32([kp_right[m.trainIdx].pt for m in matches])
+        try:
+            _, mask = cv2.findFundamentalMat(src, dst, self.ransac_method, self.ransac_px, 0.99)
+        except cv2.error:
+            _, mask = cv2.findFundamentalMat(src, dst, cv2.FM_RANSAC, self.ransac_px, 0.99)
+        if mask is None:
+            return [], 0, 0.0
+        inliers = int(mask.sum())
+        ratio = inliers / max(len(matches), 1)
+        return self._build_anchors(kp_left, kp_right, matches, mask), inliers, ratio
+
     def _too_close(self, point: np.ndarray, existing: list[np.ndarray]) -> bool:
         return any(float(np.linalg.norm(point - other)) < self.anchor_min_spacing for other in existing)
 
@@ -377,10 +440,15 @@ class PerspectiveMatcher:
 
     def _symmetric_ratio_matches(self, des_left: np.ndarray, des_right: np.ndarray) -> list[cv2.DMatch]:
         forward = self._ratio_matches(des_left, des_right)
+        if not self.mutual_check:
+            return sorted(forward, key=lambda m: m.distance)
         backward = self._ratio_matches(des_right, des_left)
         reverse_pairs = {(m.trainIdx, m.queryIdx) for m in backward}
         symmetric = [m for m in forward if (m.queryIdx, m.trainIdx) in reverse_pairs]
         return sorted(symmetric, key=lambda m: m.distance)
+
+    def _matches(self, des_left: np.ndarray, des_right: np.ndarray) -> list[cv2.DMatch]:
+        return self._symmetric_ratio_matches(des_left, des_right)
 
     def _ratio_matches(self, source: np.ndarray, target: np.ndarray) -> list[cv2.DMatch]:
         pairs = self.matcher.knnMatch(source, target, k=2)
@@ -453,7 +521,7 @@ class PerspectiveMatcher:
         return float(np.max(np.linalg.norm(prev_projected - curr_projected, axis=1)))
 
     def locked(self) -> bool:
-        return self._locked_homography is not None
+        return self._locked_mode is not None
 
 
 def side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:
@@ -507,6 +575,7 @@ def run(args) -> None:
     left_cfg = CameraConfig("LEFT", args.left_device, args.width, args.height, args.fps)
     right_cfg = CameraConfig("RIGHT", args.right_device, args.width, args.height, args.fps)
     matcher = PerspectiveMatcher(
+        args.detector,
         args.max_features,
         args.ratio,
         args.min_matches,
@@ -518,6 +587,7 @@ def run(args) -> None:
         args.lock_after,
         args.max_anchors,
         args.anchor_min_spacing,
+        args.mutual_check,
     )
 
     window = "Dual robo arm perspective matcher"
@@ -545,7 +615,7 @@ def run(args) -> None:
             status = (
                 f"kp L/R={result.keypoints_left}/{result.keypoints_right} "
                 f"matches={result.good_matches} inliers={result.inliers} "
-                f"ratio={result.inlier_ratio:.2f} H={result.state} "
+                f"ratio={result.inlier_ratio:.2f} H={result.state} detector={matcher.detector_name} "
                 f"stable={result.stable_frames}/{args.lock_after} anchors={result.anchors} fps={shown_fps:.1f}"
             )
             label(result.canvas, "LEFT", (12, 28))
@@ -572,17 +642,19 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--max-features", type=int, default=1800)
-    parser.add_argument("--ratio", type=float, default=0.72)
-    parser.add_argument("--min-matches", type=int, default=16)
-    parser.add_argument("--min-inlier-ratio", type=float, default=0.35)
-    parser.add_argument("--ransac-px", type=float, default=3.0)
-    parser.add_argument("--smoothing", type=float, default=0.82, help="Higher keeps the perspective estimate steadier.")
-    parser.add_argument("--hold-frames", type=int, default=20, help="Keep the last good homography briefly when matches drop.")
-    parser.add_argument("--max-corner-shift", type=float, default=120.0, help="Reject sudden homography jumps in pixels.")
-    parser.add_argument("--lock-after", type=int, default=10, help="Freeze anchor lines after this many stable homography frames.")
+    parser.add_argument("--detector", default="auto", choices=["auto", "sift", "akaze", "orb"])
+    parser.add_argument("--max-features", type=int, default=2600)
+    parser.add_argument("--ratio", type=float, default=0.82)
+    parser.add_argument("--min-matches", type=int, default=8)
+    parser.add_argument("--min-inlier-ratio", type=float, default=0.18)
+    parser.add_argument("--ransac-px", type=float, default=6.0)
+    parser.add_argument("--smoothing", type=float, default=0.78, help="Higher keeps the perspective estimate steadier.")
+    parser.add_argument("--hold-frames", type=int, default=45, help="Keep the last good homography briefly when matches drop.")
+    parser.add_argument("--max-corner-shift", type=float, default=260.0, help="Reject sudden homography jumps in pixels.")
+    parser.add_argument("--lock-after", type=int, default=3, help="Freeze anchor lines after this many stable homography frames.")
     parser.add_argument("--max-anchors", type=int, default=24, help="Maximum fixed correspondence lines after lock.")
     parser.add_argument("--anchor-min-spacing", type=float, default=38.0, help="Minimum pixel spacing between locked anchors.")
+    parser.add_argument("--mutual-check", action="store_true", help="Require matches to agree in both directions. More stable, but harder to lock.")
     run(parser.parse_args())
 
 
