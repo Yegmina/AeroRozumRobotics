@@ -21,9 +21,10 @@ py -3 camera_livefeed.py
 py -3 detect_cans_bottles.py
 ```
 
-The default pretrained model detects COCO `bottle`, `cup`, and `wine glass`
-classes. Aluminum cans are often detected as cup/bottle-like objects unless a
-custom can class model is provided.
+This uses Faster R-CNN ResNet50 FPN V2 from torchvision instead of YOLO. It is
+larger than the previous nano model and uses COCO `bottle`, `cup`, and
+`wine glass` classes by default. Aluminum cans may appear as cup/bottle-like
+objects unless a can-specific custom model is added.
 
 ## Use In Agent Code
 
