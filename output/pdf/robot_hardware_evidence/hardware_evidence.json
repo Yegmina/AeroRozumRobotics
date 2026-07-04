@@ -1,0 +1,694 @@
+{
+  "timestamp": "2026-07-04T21:19:18",
+  "base_url": "http://127.0.0.1:7860",
+  "initial_state": {
+    "camera_error": "",
+    "goal": "",
+    "history": [],
+    "last_result": "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+    "plan": {},
+    "robot": {
+      "dry_run": false,
+      "last_actions": [
+        "ST/SC servo 4: 579 -> target 519 -> readback 579 in 600ms (ack)",
+        "ST/SC servo 5: 3362 -> target 3302 -> readback 3307 in 600ms (ack)",
+        "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+        "scan 1-12: [2, 3, 4, 5, 6]",
+        "ST/SC servo 3: 1969 -> target 2029 -> readback 1972 in 600ms (ack)",
+        "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+        "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+        "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+        "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+        "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)"
+      ],
+      "motion_enabled": true,
+      "positions": {
+        "base": 4031,
+        "elbow": 639,
+        "gripper": 3740,
+        "shoulder": 1900,
+        "wrist": 3367
+      },
+      "protocol": "feetech_sts",
+      "readback_positions": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "serial_port": "COM11",
+      "servo_ids": {
+        "base": 2,
+        "elbow": 4,
+        "gripper": 6,
+        "shoulder": 3,
+        "wrist": 5
+      }
+    },
+    "running": false
+  },
+  "final_state": {
+    "camera_error": "",
+    "goal": "",
+    "history": [],
+    "last_result": "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+    "plan": {},
+    "robot": {
+      "dry_run": false,
+      "last_actions": [
+        "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+        "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+        "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+        "scan 1-12: [2, 3, 4, 5]",
+        "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+        "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+        "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)",
+        "ST/SC servo 4: 638 -> target 698 -> readback 694 in 600ms (ack)",
+        "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+        "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)"
+      ],
+      "motion_enabled": true,
+      "positions": {
+        "base": 4031,
+        "elbow": 698,
+        "gripper": 3740,
+        "shoulder": 1900,
+        "wrist": 3367
+      },
+      "protocol": "feetech_sts",
+      "readback_positions": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3363
+      },
+      "serial_port": "COM11",
+      "servo_ids": {
+        "base": 2,
+        "elbow": 4,
+        "gripper": 6,
+        "shoulder": 3,
+        "wrist": 5
+      }
+    },
+    "running": false
+  },
+  "results": [
+    {
+      "name": "01_scan",
+      "description": "Scan the transparent ST/SC serial bus for responding servo IDs.",
+      "action": {
+        "type": "scan",
+        "start_id": 1,
+        "end_id": 12
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "scan found ids: [2, 3, 4, 5]",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 5: 3362 -> target 3302 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5, 6]",
+            "ST/SC servo 3: 1969 -> target 2029 -> readback 1972 in 600ms (ack)",
+            "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 639,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 638,
+            "gripper": null,
+            "shoulder": 1897,
+            "wrist": 3364
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false,
+        "scan": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\01_scan_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\01_scan_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 2.28,
+        "changed_percent": 0.07,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\01_scan_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": 0,
+        "wrist": 0
+      }
+    },
+    {
+      "name": "02_shoulder_positive",
+      "description": "Move shoulder joint by +60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "shoulder",
+        "delta": 60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5, 6]",
+            "ST/SC servo 3: 1969 -> target 2029 -> readback 1972 in 600ms (ack)",
+            "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 639,
+            "gripper": 3740,
+            "shoulder": 1957,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 638,
+            "gripper": null,
+            "shoulder": 1904,
+            "wrist": 3364
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\02_shoulder_positive_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\02_shoulder_positive_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 12.35,
+        "changed_percent": 15.85,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\02_shoulder_positive_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1905,
+        "wrist": 3364
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": 8,
+        "wrist": 0
+      }
+    },
+    {
+      "name": "03_shoulder_negative",
+      "description": "Move shoulder joint by -60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "shoulder",
+        "delta": -60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "scan 1-12: [2, 3, 4, 5, 6]",
+            "ST/SC servo 3: 1969 -> target 2029 -> readback 1972 in 600ms (ack)",
+            "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+            "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 639,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 638,
+            "gripper": null,
+            "shoulder": 1898,
+            "wrist": 3364
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\03_shoulder_negative_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\03_shoulder_negative_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 11.99,
+        "changed_percent": 15.44,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\03_shoulder_negative_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1905,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": -8,
+        "wrist": 0
+      }
+    },
+    {
+      "name": "04_shoulder_negative",
+      "description": "Move shoulder joint by -60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "shoulder",
+        "delta": -60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 3: 1969 -> target 2029 -> readback 1972 in 600ms (ack)",
+            "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+            "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+            "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 639,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 638,
+            "gripper": null,
+            "shoulder": 1897,
+            "wrist": 3364
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\04_shoulder_negative_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\04_shoulder_negative_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 2.29,
+        "changed_percent": 0.07,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\04_shoulder_negative_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": 0,
+        "wrist": 0
+      }
+    },
+    {
+      "name": "05_elbow_positive",
+      "description": "Move elbow joint by +60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "elbow",
+        "delta": 60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 4: 638 -> target 698 -> readback 694 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 3: 1972 -> target 1912 -> readback 1912 in 600ms (ack)",
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+            "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+            "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 638 -> target 698 -> readback 694 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 698,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 694,
+            "gripper": null,
+            "shoulder": 1897,
+            "wrist": 3364
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\05_elbow_positive_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\05_elbow_positive_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 26.74,
+        "changed_percent": 35.31,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\05_elbow_positive_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 638,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 56,
+        "gripper": null,
+        "shoulder": 0,
+        "wrist": 0
+      }
+    },
+    {
+      "name": "06_wrist_negative",
+      "description": "Move wrist joint by -60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "wrist",
+        "delta": -60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 3: 1908 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+            "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+            "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 638 -> target 698 -> readback 694 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 698,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3304
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": null,
+            "elbow": null,
+            "gripper": null,
+            "shoulder": null,
+            "wrist": null
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\06_wrist_negative_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\06_wrist_negative_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 26.87,
+        "changed_percent": 31.04,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\06_wrist_negative_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3364
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3307
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": 0,
+        "wrist": -57
+      }
+    },
+    {
+      "name": "07_wrist_positive",
+      "description": "Move wrist joint by +60 ST/SMS position units from live readback.",
+      "action": {
+        "type": "nudge_joint",
+        "joint": "wrist",
+        "delta": 60
+      },
+      "response": {
+        "camera_error": "",
+        "goal": "",
+        "history": [],
+        "last_result": "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+        "plan": {},
+        "robot": {
+          "dry_run": false,
+          "last_actions": [
+            "ST/SC servo 4: 579 -> target 639 -> readback 638 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)",
+            "scan 1-12: [2, 3, 4, 5]",
+            "ST/SC servo 3: 1897 -> target 1957 -> readback 1904 in 600ms (ack)",
+            "ST/SC servo 3: 1905 -> target 1900 -> readback 1898 in 600ms (ack)",
+            "ST/SC servo 3: 1897 -> target 1900 -> readback 1897 in 600ms (ack)",
+            "ST/SC servo 4: 638 -> target 698 -> readback 694 in 600ms (ack)",
+            "ST/SC servo 5: 3364 -> target 3304 -> readback 3307 in 600ms (ack)",
+            "ST/SC servo 5: 3307 -> target 3367 -> readback 3363 in 600ms (ack)"
+          ],
+          "motion_enabled": true,
+          "positions": {
+            "base": 4031,
+            "elbow": 698,
+            "gripper": 3740,
+            "shoulder": 1900,
+            "wrist": 3367
+          },
+          "protocol": "feetech_sts",
+          "readback_positions": {
+            "base": 151,
+            "elbow": 694,
+            "gripper": null,
+            "shoulder": 1897,
+            "wrist": 3363
+          },
+          "serial_port": "COM11",
+          "servo_ids": {
+            "base": 2,
+            "elbow": 4,
+            "gripper": 6,
+            "shoulder": 3,
+            "wrist": 5
+          }
+        },
+        "running": false
+      },
+      "before": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\07_wrist_positive_before.jpg",
+      "after": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\07_wrist_positive_after.jpg",
+      "metrics": {
+        "mean_abs_diff": 26.85,
+        "changed_percent": 30.99,
+        "diff_image": "C:\\business\\AeroRozum\\AeroRozumRobotics\\output\\pdf\\robot_hardware_evidence\\images\\07_wrist_positive_diff.jpg"
+      },
+      "servo_before": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3307
+      },
+      "servo_after": {
+        "base": 151,
+        "elbow": 694,
+        "gripper": null,
+        "shoulder": 1897,
+        "wrist": 3363
+      },
+      "servo_delta": {
+        "base": 0,
+        "elbow": 0,
+        "gripper": null,
+        "shoulder": 0,
+        "wrist": 56
+      }
+    }
+  ]
+}

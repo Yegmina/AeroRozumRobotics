@@ -1,36 +1,36 @@
 {
   "serial": {
     "port": "COM11",
-    "baudrate": 115200,
+    "baudrate": 1000000,
     "timeout_s": 0.1,
-    "protocol": "roarm_json"
+    "protocol": "feetech_sts"
   },
   "motion": {
     "default_duration_ms": 600,
-    "max_step_units": 12,
+    "max_step_units": 80,
     "dry_run": true
   },
   "joints": {
-    "base": { "servo_id": 1, "min": -45, "max": 45, "home": 0 },
-    "shoulder": { "servo_id": 2, "min": -35, "max": 35, "home": 0 },
-    "elbow": { "servo_id": 3, "min": -45, "max": 45, "home": 0 },
-    "wrist": { "servo_id": 4, "min": -45, "max": 45, "home": 0 },
-    "gripper": { "servo_id": 6, "min": 0, "max": 90, "home": 45, "open": 90, "closed": 10 }
+    "base": { "servo_id": 2, "min": 3600, "max": 4095, "home": 4000 },
+    "shoulder": { "servo_id": 3, "min": 1900, "max": 2800, "home": 2200 },
+    "elbow": { "servo_id": 4, "min": 120, "max": 700, "home": 260 },
+    "wrist": { "servo_id": 5, "min": 3000, "max": 3800, "home": 3350 },
+    "gripper": { "servo_id": 6, "min": 3300, "max": 3900, "home": 3740, "open": 3740, "closed": 3500 }
   },
   "presets": {
     "home": {
-      "base": 0,
-      "shoulder": 0,
-      "elbow": 0,
-      "wrist": 0,
-      "gripper": 90
+      "base": 4000,
+      "shoulder": 2200,
+      "elbow": 260,
+      "wrist": 3350,
+      "gripper": 3740
     },
     "ready": {
-      "base": 8,
-      "shoulder": 0,
-      "elbow": 0,
-      "wrist": 0,
-      "gripper": 90
+      "base": 3920,
+      "shoulder": 2200,
+      "elbow": 300,
+      "wrist": 3350,
+      "gripper": 3740
     }
   }
 }

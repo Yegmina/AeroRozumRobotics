@@ -53,22 +53,17 @@ PAGE = """
     <button class="manual" onclick="manual({type:'preset', name:'ready'})">Ready</button>
     <button class="manual" onclick="manual({type:'preset', name:'home'})">Home</button>
     <br>
-    <button class="manual" onclick="manual({type:'json', payload:{T:100}})">RoArm Home</button>
-    <button class="manual" onclick="manual({type:'json', payload:{T:210,cmd:1}})">Torque On</button>
-    <button class="manual" onclick="manual({type:'json', payload:{T:210,cmd:0}})">Torque Off</button>
+    <button class="manual" onclick="scanServos()">Scan Servos</button>
+    <button class="manual" onclick="manual({type:'preset', name:'ready'})">Ready</button>
+    <button class="manual" onclick="manual({type:'preset', name:'home'})">Home</button>
     <br>
-    <button class="manual" onclick="manual({type:'json', payload:{T:121,joint:1,angle:10,spd:1000}})">JSON Base 10</button>
-    <button class="manual" onclick="manual({type:'json', payload:{T:121,joint:1,angle:-10,spd:1000}})">JSON Base -10</button>
-    <button class="manual" onclick="manual({type:'json', payload:{T:101,joint:1,rad:0.18,spd:0,acc:10}})">Legacy Base +</button>
-    <button class="manual" onclick="manual({type:'json', payload:{T:101,joint:1,rad:-0.18,spd:0,acc:10}})">Legacy Base -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:-80})">Base -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:80})">Base +</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:-80})">Shoulder -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:80})">Shoulder +</button>
     <br>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:-8})">Base -</button>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:8})">Base +</button>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:-8})">Shoulder -</button>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:8})">Shoulder +</button>
-    <br>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:-8})">Elbow -</button>
-    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:8})">Elbow +</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:-80})">Elbow -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:80})">Elbow +</button>
     <button class="manual" onclick="manual({type:'set_gripper', state:'open'})">Open</button>
     <button class="manual" onclick="manual({type:'set_gripper', state:'closed'})">Close</button>
     <pre id="log"></pre>

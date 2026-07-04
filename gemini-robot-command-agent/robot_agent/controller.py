@@ -51,6 +51,7 @@ class RobotController:
             return {
                 "positions": dict(self.state.positions),
                 "servo_ids": {name: joint.servo_id for name, joint in self.config.joints.items()},
+                "readback_positions": self.readback_positions(),
                 "motion_enabled": self.state.motion_enabled,
                 "dry_run": self.dry_run,
                 "protocol": self.config.serial.protocol,
@@ -66,6 +67,18 @@ class RobotController:
         with self._lock:
             self.state.last_actions.append(f"scan {start_id}-{end_id}: {found}")
         return found
+
+    def readback_positions(self) -> dict[str, int | None]:
+        read_position = getattr(self.bus, "read_position", None)
+        if read_position is None or self.dry_run:
+            return {}
+        values: dict[str, int | None] = {}
+        for name, joint in self.config.joints.items():
+            try:
+                values[name] = read_position(joint.servo_id)
+            except Exception:
+                values[name] = None
+        return values
 
     def execute(self, action: dict[str, Any]) -> str:
         kind = str(action.get("type", "")).lower()
@@ -135,8 +148,15 @@ class RobotController:
     def nudge_joint(self, joint_name: str, delta: int, duration_ms: int) -> str:
         joint = self._joint(joint_name)
         delta = max(-self.config.motion.max_step_units, min(self.config.motion.max_step_units, delta))
+        read_position = getattr(self.bus, "read_position", None)
+        live_position = None
+        if read_position is not None and not self.dry_run:
+            try:
+                live_position = read_position(joint.servo_id)
+            except Exception:
+                live_position = None
         with self._lock:
-            current = self.state.positions.get(joint_name, joint.home)
+            current = live_position if live_position is not None else self.state.positions.get(joint_name, joint.home)
         return self.move_joint(joint_name, current + delta, duration_ms)
 
     def set_gripper(self, state: str) -> str:

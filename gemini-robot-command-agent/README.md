@@ -30,16 +30,16 @@ The `--enable-motion` flag is the final hardware-enable switch. The joint
 limits in `servo_config.json` are still applied before any serial packet is
 written.
 
-The default serial protocol is `roarm_json`, which sends newline-terminated
-Waveshare/RoArm JSON commands over `COM11`. For a transparent ST/SC servo bus,
-change `serial.protocol` to `feetech_sts`.
+The default serial protocol is `feetech_sts`, which controls the transparent
+ST/SC serial bus at `1000000` baud on `COM11`.
 
 If the arm does not move while `dry_run=false`, check these first:
 
 - The arm controller is powered and switched on.
 - The USB cable is plugged into the controller port used for serial control.
 - `COM11` is still the CH343/robot controller port.
-- Try `Torque On`, then `JSON Base 10`, then `Legacy Base +` in the UI.
+- Press `Scan Servos`; expected responding IDs on this setup are `2`, `3`,
+  `4`, `5`, and sometimes `6`.
 
 ## Environment
 
@@ -69,3 +69,18 @@ Before enabling motion, verify every joint in `servo_config.json`:
 
 Use dry-run first. Then enable motion only with the arm clear of people,
 cables, and fragile objects.
+
+## Hardware Evidence Test
+
+With the server running in real-motion mode:
+
+```powershell
+py -3 run_hardware_evidence_test.py
+```
+
+This runs a servo scan and multiple live-readback joint moves, captures
+before/after camera frames, writes `hardware_evidence.json`, and generates:
+
+```text
+..\output\pdf\robot_hardware_evidence\robot_hardware_evidence_report.pdf
+```
