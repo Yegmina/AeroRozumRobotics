@@ -1,11 +1,13 @@
 # AeroRozum Robotics Camera Feed
 
-This project accesses the camera feed from the left robo arm through the Windows
-DirectShow device named `USB2.0_CAM1`.
+This project accesses the camera feed from the left robo arm through its unique
+Windows DirectShow device path.
 
 We avoid OpenCV camera indexes because index `0` opened the laptop webcam on
-this machine. The reusable wrapper opens the named USB device through FFmpeg and
-returns normal OpenCV BGR `numpy` frames for future AI agent development.
+this machine. Both arm cameras report the same friendly name, `USB2.0_CAM1`, so
+the reusable wrapper opens the left USB camera by its DirectShow device path
+through FFmpeg and returns normal OpenCV BGR `numpy` frames for future AI agent
+development.
 
 ## Live Feed
 
@@ -18,7 +20,7 @@ py -3 camera_livefeed.py
 ```python
 from robotics_camera import CameraConfig, DirectShowCamera
 
-config = CameraConfig(device_name="USB2.0_CAM1", width=1280, height=720, fps=30)
+config = CameraConfig(width=1280, height=720, fps=30)
 
 with DirectShowCamera(config).start_background() as camera:
     frame = camera.latest_frame()
@@ -26,4 +28,3 @@ with DirectShowCamera(config).start_background() as camera:
 
 `frame` is a writable OpenCV BGR image. Use `camera.read()` instead when blocking
 one-frame-at-a-time access is preferred.
-

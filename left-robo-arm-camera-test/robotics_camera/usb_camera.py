@@ -11,7 +11,10 @@ import cv2
 import numpy as np
 
 
-DEFAULT_DEVICE_NAME = "USB2.0_CAM1"
+DEFAULT_DEVICE_NAME = (
+    r"@device_pnp_\\?\usb#vid_05a3&pid_9230&mi_00#6&37e57649&0&0000"
+    r"#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\global"
+)
 
 
 class CameraError(RuntimeError):

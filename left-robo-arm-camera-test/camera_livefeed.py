@@ -38,7 +38,7 @@ def run_livefeed(config: CameraConfig) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Open the robotics USB camera livefeed.")
-    parser.add_argument("--device-name", default="USB2.0_CAM1", help="DirectShow camera device name.")
+    parser.add_argument("--device-name", default=CameraConfig().device_name, help="DirectShow camera device name.")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=30)
