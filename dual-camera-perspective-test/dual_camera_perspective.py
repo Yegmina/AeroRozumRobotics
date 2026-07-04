@@ -190,6 +190,8 @@ class MatchResult:
     inliers: int
     inlier_ratio: float
     state: str
+    stable_frames: int
+    anchors: int
 
 
 class PerspectiveMatcher:
@@ -203,6 +205,9 @@ class PerspectiveMatcher:
         smoothing: float,
         hold_frames: int,
         max_corner_shift: float,
+        lock_after: int,
+        max_anchors: int,
+        anchor_min_spacing: float,
     ):
         self.orb = cv2.ORB_create(
             nfeatures=max_features,
@@ -221,10 +226,39 @@ class PerspectiveMatcher:
         self.smoothing = smoothing
         self.hold_frames = hold_frames
         self.max_corner_shift = max_corner_shift
+        self.lock_after = lock_after
+        self.max_anchors = max_anchors
+        self.anchor_min_spacing = anchor_min_spacing
         self._stable_homography: np.ndarray | None = None
+        self._locked_homography: np.ndarray | None = None
+        self._locked_anchors: list[tuple[tuple[int, int], tuple[int, int]]] = []
+        self._stable_frames = 0
         self._frames_since_good = hold_frames + 1
 
+    def reset(self) -> None:
+        self._stable_homography = None
+        self._locked_homography = None
+        self._locked_anchors = []
+        self._stable_frames = 0
+        self._frames_since_good = self.hold_frames + 1
+
     def match(self, left: np.ndarray, right: np.ndarray) -> MatchResult:
+        if self._locked_homography is not None:
+            canvas = draw_anchor_matches(left, right, self._locked_anchors)
+            return MatchResult(
+                canvas,
+                self._locked_homography,
+                None,
+                0,
+                0,
+                0,
+                0,
+                0.0,
+                "LOCKED",
+                self._stable_frames,
+                len(self._locked_anchors),
+            )
+
         gray_left = self._prepare_gray(left)
         gray_right = self._prepare_gray(right)
         kp_left, des_left = self.orb.detectAndCompute(gray_left, None)
@@ -233,7 +267,7 @@ class PerspectiveMatcher:
         if des_left is None or des_right is None or len(kp_left) < 2 or len(kp_right) < 2:
             canvas = side_by_side(left, right)
             homography, state = self._held_homography()
-            return MatchResult(canvas, homography, None, len(kp_left), len(kp_right), 0, 0, 0.0, state)
+            return MatchResult(canvas, homography, None, len(kp_left), len(kp_right), 0, 0, 0.0, state, self._stable_frames, 0)
 
         good = self._symmetric_ratio_matches(des_left, des_right)
 
@@ -257,27 +291,37 @@ class PerspectiveMatcher:
                 and self._homography_is_reasonable(raw_homography, left.shape, right.shape)
             ):
                 homography = self._update_stable_homography(raw_homography, left.shape)
-                state = "LOCK"
+                state = "ACQUIRE"
+                anchors = self._build_anchors(kp_left, kp_right, good, inlier_mask)
+                if self._stable_frames >= self.lock_after and len(anchors) >= min(self.min_matches, self.max_anchors):
+                    self._locked_homography = homography
+                    self._locked_anchors = anchors
+                    state = "LOCKED"
 
         if homography is None:
             homography, state = self._held_homography()
+            if state == "WAIT":
+                self._stable_frames = 0
 
-        draw_matches = good[:100]
-        matches_mask = None
-        if inlier_mask is not None:
-            matches_mask = inlier_mask.ravel().astype(np.uint8).tolist()[: len(draw_matches)]
-        canvas = cv2.drawMatches(
-            left,
-            kp_left,
-            right,
-            kp_right,
-            draw_matches,
-            None,
-            matchColor=(0, 255, 0),
-            singlePointColor=(80, 80, 80),
-            matchesMask=matches_mask,
-            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        )
+        if self._locked_homography is not None:
+            canvas = draw_anchor_matches(left, right, self._locked_anchors)
+        else:
+            draw_matches = good[:100]
+            matches_mask = None
+            if inlier_mask is not None:
+                matches_mask = inlier_mask.ravel().astype(np.uint8).tolist()[: len(draw_matches)]
+            canvas = cv2.drawMatches(
+                left,
+                kp_left,
+                right,
+                kp_right,
+                draw_matches,
+                None,
+                matchColor=(0, 255, 0),
+                singlePointColor=(80, 80, 80),
+                matchesMask=matches_mask,
+                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+            )
         return MatchResult(
             canvas,
             homography,
@@ -288,7 +332,44 @@ class PerspectiveMatcher:
             inliers,
             inlier_ratio,
             state,
+            self._stable_frames,
+            len(self._locked_anchors),
         )
+
+    def _build_anchors(
+        self,
+        kp_left,
+        kp_right,
+        matches: list[cv2.DMatch],
+        inlier_mask: np.ndarray | None,
+    ) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+        if inlier_mask is None:
+            return []
+        anchors: list[tuple[tuple[int, int], tuple[int, int]]] = []
+        used_left: list[np.ndarray] = []
+        used_right: list[np.ndarray] = []
+        mask = inlier_mask.ravel().astype(bool)
+        for match, is_inlier in zip(matches, mask):
+            if not is_inlier:
+                continue
+            left_pt = np.array(kp_left[match.queryIdx].pt, dtype=np.float32)
+            right_pt = np.array(kp_right[match.trainIdx].pt, dtype=np.float32)
+            if self._too_close(left_pt, used_left) or self._too_close(right_pt, used_right):
+                continue
+            used_left.append(left_pt)
+            used_right.append(right_pt)
+            anchors.append(
+                (
+                    (int(round(left_pt[0])), int(round(left_pt[1]))),
+                    (int(round(right_pt[0])), int(round(right_pt[1]))),
+                )
+            )
+            if len(anchors) >= self.max_anchors:
+                break
+        return anchors
+
+    def _too_close(self, point: np.ndarray, existing: list[np.ndarray]) -> bool:
+        return any(float(np.linalg.norm(point - other)) < self.anchor_min_spacing for other in existing)
 
     def _prepare_gray(self, frame: np.ndarray) -> np.ndarray:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -316,14 +397,17 @@ class PerspectiveMatcher:
         raw = raw_homography / raw_homography[2, 2]
         if self._stable_homography is None:
             self._stable_homography = raw
+            self._stable_frames = 1
         else:
             previous = self._stable_homography / self._stable_homography[2, 2]
             if self._corner_shift(previous, raw, left_shape) > self.max_corner_shift:
                 self._frames_since_good += 1
+                self._stable_frames = 0
                 return previous
             alpha = float(np.clip(self.smoothing, 0.0, 1.0))
             smoothed = previous * alpha + raw * (1.0 - alpha)
             self._stable_homography = smoothed / smoothed[2, 2]
+            self._stable_frames += 1
         self._frames_since_good = 0
         return self._stable_homography
 
@@ -368,9 +452,36 @@ class PerspectiveMatcher:
         curr_projected = cv2.perspectiveTransform(corners, current).reshape(-1, 2)
         return float(np.max(np.linalg.norm(prev_projected - curr_projected, axis=1)))
 
+    def locked(self) -> bool:
+        return self._locked_homography is not None
+
 
 def side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     return np.hstack([left, right])
+
+
+def draw_anchor_matches(
+    left: np.ndarray,
+    right: np.ndarray,
+    anchors: list[tuple[tuple[int, int], tuple[int, int]]],
+) -> np.ndarray:
+    canvas = side_by_side(left, right)
+    offset = left.shape[1]
+    colors = [
+        (0, 255, 0),
+        (0, 220, 255),
+        (255, 170, 0),
+        (255, 80, 255),
+        (80, 180, 255),
+        (170, 255, 80),
+    ]
+    for index, (left_pt, right_pt) in enumerate(anchors):
+        color = colors[index % len(colors)]
+        right_canvas = (right_pt[0] + offset, right_pt[1])
+        cv2.line(canvas, left_pt, right_canvas, color, 1, cv2.LINE_AA)
+        cv2.circle(canvas, left_pt, 5, color, -1, cv2.LINE_AA)
+        cv2.circle(canvas, right_canvas, 5, color, -1, cv2.LINE_AA)
+    return canvas
 
 
 def label(frame: np.ndarray, text: str, origin: tuple[int, int] = (12, 28)) -> None:
@@ -404,6 +515,9 @@ def run(args) -> None:
         args.smoothing,
         args.hold_frames,
         args.max_corner_shift,
+        args.lock_after,
+        args.max_anchors,
+        args.anchor_min_spacing,
     )
 
     window = "Dual robo arm perspective matcher"
@@ -431,7 +545,8 @@ def run(args) -> None:
             status = (
                 f"kp L/R={result.keypoints_left}/{result.keypoints_right} "
                 f"matches={result.good_matches} inliers={result.inliers} "
-                f"ratio={result.inlier_ratio:.2f} H={result.state} fps={shown_fps:.1f}"
+                f"ratio={result.inlier_ratio:.2f} H={result.state} "
+                f"stable={result.stable_frames}/{args.lock_after} anchors={result.anchors} fps={shown_fps:.1f}"
             )
             label(result.canvas, "LEFT", (12, 28))
             label(result.canvas, "RIGHT", (left.shape[1] + 12, 28))
@@ -444,6 +559,8 @@ def run(args) -> None:
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q")):
                 break
+            if key == ord("r"):
+                matcher.reset()
 
     cv2.destroyAllWindows()
 
@@ -463,6 +580,9 @@ def main() -> None:
     parser.add_argument("--smoothing", type=float, default=0.82, help="Higher keeps the perspective estimate steadier.")
     parser.add_argument("--hold-frames", type=int, default=20, help="Keep the last good homography briefly when matches drop.")
     parser.add_argument("--max-corner-shift", type=float, default=120.0, help="Reject sudden homography jumps in pixels.")
+    parser.add_argument("--lock-after", type=int, default=10, help="Freeze anchor lines after this many stable homography frames.")
+    parser.add_argument("--max-anchors", type=int, default=24, help="Maximum fixed correspondence lines after lock.")
+    parser.add_argument("--anchor-min-spacing", type=float, default=38.0, help="Minimum pixel spacing between locked anchors.")
     run(parser.parse_args())
 
 
