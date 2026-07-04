@@ -39,10 +39,11 @@ Useful tuning flags:
 py -3 dual_camera_perspective.py --min-matches 20 --min-inlier-ratio 0.4 --smoothing 0.88
 ```
 
-If the scene is static but the points jump, wait for `H=H_LOCKED` or
-`H=F_LOCKED`. Before lock, the display is still showing live acquisition
-matches. After lock, only the frozen anchor correspondences are drawn.
+If the scene is static but the points jump, wait for `H=H_TRACK` or
+`H=F_TRACK`. Before tracking starts, the display is still showing live
+acquisition matches. After tracking starts, the same anchor correspondences are
+followed frame-to-frame with optical flow.
 
-`H_LOCKED` means the tool also has a planar perspective warp. `F_LOCKED` means
-it found stable cross-camera correspondences, but a planar warp is not valid for
+`H_TRACK` means the tool also has a planar perspective warp. `F_TRACK` means it
+found stable cross-camera correspondences, but a planar warp is not valid for
 the current object/viewpoint.

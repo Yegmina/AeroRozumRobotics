@@ -261,6 +261,10 @@ class PerspectiveMatcher:
         self._locked_homography: np.ndarray | None = None
         self._locked_anchors: list[tuple[tuple[int, int], tuple[int, int]]] = []
         self._locked_mode: str | None = None
+        self._tracked_left: np.ndarray | None = None
+        self._tracked_right: np.ndarray | None = None
+        self._previous_left_gray: np.ndarray | None = None
+        self._previous_right_gray: np.ndarray | None = None
         self._stable_frames = 0
         self._fundamental_frames = 0
         self._frames_since_good = hold_frames + 1
@@ -270,12 +274,19 @@ class PerspectiveMatcher:
         self._locked_homography = None
         self._locked_anchors = []
         self._locked_mode = None
+        self._tracked_left = None
+        self._tracked_right = None
+        self._previous_left_gray = None
+        self._previous_right_gray = None
         self._stable_frames = 0
         self._fundamental_frames = 0
         self._frames_since_good = self.hold_frames + 1
 
     def match(self, left: np.ndarray, right: np.ndarray) -> MatchResult:
-        if self._locked_mode is not None:
+        gray_left = self._prepare_gray(left)
+        gray_right = self._prepare_gray(right)
+
+        if self._locked_mode is not None and self._track_locked(gray_left, gray_right, left.shape, right.shape):
             canvas = draw_anchor_matches(left, right, self._locked_anchors)
             return MatchResult(
                 canvas,
@@ -291,8 +302,6 @@ class PerspectiveMatcher:
                 len(self._locked_anchors),
             )
 
-        gray_left = self._prepare_gray(left)
-        gray_right = self._prepare_gray(right)
         kp_left, des_left = self.detector.detectAndCompute(gray_left, None)
         kp_right, des_right = self.detector.detectAndCompute(gray_right, None)
 
@@ -327,9 +336,7 @@ class PerspectiveMatcher:
                 state = "ACQUIRE"
                 anchors = self._build_anchors(kp_left, kp_right, good, inlier_mask)
                 if self._stable_frames >= self.lock_after and len(anchors) >= min(self.min_matches, self.max_anchors):
-                    self._locked_homography = homography
-                    self._locked_anchors = anchors
-                    self._locked_mode = "H_LOCKED"
+                    self._start_tracking(anchors, gray_left, gray_right, "H_TRACK", homography)
                     state = self._locked_mode
             else:
                 f_anchors, f_inliers, f_ratio = self._fundamental_anchors(kp_left, kp_right, good)
@@ -339,9 +346,7 @@ class PerspectiveMatcher:
                     inlier_ratio = f_ratio
                     state = "F_ACQUIRE"
                     if self._fundamental_frames >= self.lock_after:
-                        self._locked_homography = None
-                        self._locked_anchors = f_anchors
-                        self._locked_mode = "F_LOCKED"
+                        self._start_tracking(f_anchors, gray_left, gray_right, "F_TRACK", None)
                         state = self._locked_mode
                 else:
                     self._fundamental_frames = 0
@@ -417,6 +422,101 @@ class PerspectiveMatcher:
             if len(anchors) >= self.max_anchors:
                 break
         return anchors
+
+    def _start_tracking(
+        self,
+        anchors: list[tuple[tuple[int, int], tuple[int, int]]],
+        gray_left: np.ndarray,
+        gray_right: np.ndarray,
+        mode: str,
+        homography: np.ndarray | None,
+    ) -> None:
+        self._locked_anchors = anchors
+        self._locked_mode = mode
+        self._locked_homography = homography
+        self._tracked_left = np.float32([left for left, _ in anchors]).reshape(-1, 1, 2)
+        self._tracked_right = np.float32([right for _, right in anchors]).reshape(-1, 1, 2)
+        self._previous_left_gray = gray_left.copy()
+        self._previous_right_gray = gray_right.copy()
+
+    def _track_locked(
+        self,
+        gray_left: np.ndarray,
+        gray_right: np.ndarray,
+        left_shape: tuple[int, ...],
+        right_shape: tuple[int, ...],
+    ) -> bool:
+        if (
+            self._tracked_left is None
+            or self._tracked_right is None
+            or self._previous_left_gray is None
+            or self._previous_right_gray is None
+            or self._locked_mode is None
+        ):
+            self.reset()
+            return False
+
+        lk_params = dict(
+            winSize=(25, 25),
+            maxLevel=3,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+        )
+        next_left, status_left, err_left = cv2.calcOpticalFlowPyrLK(
+            self._previous_left_gray,
+            gray_left,
+            self._tracked_left,
+            None,
+            **lk_params,
+        )
+        next_right, status_right, err_right = cv2.calcOpticalFlowPyrLK(
+            self._previous_right_gray,
+            gray_right,
+            self._tracked_right,
+            None,
+            **lk_params,
+        )
+        if next_left is None or next_right is None or status_left is None or status_right is None:
+            self.reset()
+            return False
+
+        keep = (status_left.reshape(-1) == 1) & (status_right.reshape(-1) == 1)
+        if err_left is not None:
+            keep &= err_left.reshape(-1) < 80.0
+        if err_right is not None:
+            keep &= err_right.reshape(-1) < 80.0
+
+        left_points = next_left.reshape(-1, 2)[keep]
+        right_points = next_right.reshape(-1, 2)[keep]
+        if len(left_points) < self.min_matches:
+            self.reset()
+            return False
+
+        self._tracked_left = left_points.reshape(-1, 1, 2).astype(np.float32)
+        self._tracked_right = right_points.reshape(-1, 1, 2).astype(np.float32)
+        self._previous_left_gray = gray_left.copy()
+        self._previous_right_gray = gray_right.copy()
+        self._locked_anchors = [
+            ((int(round(left_pt[0])), int(round(left_pt[1]))), (int(round(right_pt[0])), int(round(right_pt[1]))))
+            for left_pt, right_pt in zip(left_points, right_points)
+        ]
+
+        if self._locked_mode == "H_TRACK" and len(left_points) >= self.min_matches:
+            homography, mask = cv2.findHomography(
+                left_points.reshape(-1, 1, 2),
+                right_points.reshape(-1, 1, 2),
+                self.ransac_method,
+                self.ransac_px,
+            )
+            if (
+                homography is not None
+                and mask is not None
+                and int(mask.sum()) >= self.min_matches
+                and self._homography_is_reasonable(homography, left_shape, right_shape)
+            ):
+                self._locked_homography = self._update_stable_homography(homography, left_shape)
+            elif self._locked_homography is None:
+                self._locked_mode = "F_TRACK"
+        return True
 
     def _fundamental_anchors(self, kp_left, kp_right, matches: list[cv2.DMatch]):
         src = np.float32([kp_left[m.queryIdx].pt for m in matches])
