@@ -1,0 +1,6 @@
+flask
+google-genai
+opencv-python
+numpy
+pyserial
+python-dotenv

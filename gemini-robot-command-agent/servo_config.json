@@ -1,0 +1,36 @@
+{
+  "serial": {
+    "port": "COM11",
+    "baudrate": 115200,
+    "timeout_s": 0.1,
+    "protocol": "lewansoul_lx16a"
+  },
+  "motion": {
+    "default_duration_ms": 800,
+    "max_step_units": 120,
+    "dry_run": true
+  },
+  "joints": {
+    "base": { "servo_id": 1, "min": 350, "max": 650, "home": 500 },
+    "shoulder": { "servo_id": 2, "min": 350, "max": 650, "home": 500 },
+    "elbow": { "servo_id": 3, "min": 350, "max": 650, "home": 500 },
+    "wrist": { "servo_id": 4, "min": 350, "max": 650, "home": 500 },
+    "gripper": { "servo_id": 5, "min": 420, "max": 620, "home": 620, "open": 620, "closed": 440 }
+  },
+  "presets": {
+    "home": {
+      "base": 500,
+      "shoulder": 500,
+      "elbow": 500,
+      "wrist": 500,
+      "gripper": 620
+    },
+    "ready": {
+      "base": 500,
+      "shoulder": 470,
+      "elbow": 540,
+      "wrist": 500,
+      "gripper": 620
+    }
+  }
+}
