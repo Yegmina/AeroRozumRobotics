@@ -15,6 +15,16 @@ development.
 py -3 camera_livefeed.py
 ```
 
+## Bottle And Can-Like Detection
+
+```powershell
+py -3 detect_cans_bottles.py
+```
+
+The default pretrained model detects COCO `bottle`, `cup`, and `wine glass`
+classes. Aluminum cans are often detected as cup/bottle-like objects unless a
+custom can class model is provided.
+
 ## Use In Agent Code
 
 ```python
