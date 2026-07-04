@@ -5,7 +5,7 @@ import threading
 from typing import Any
 
 from .config import AppConfig
-from .servo_bus import LewanSoulLX16ABus, ServoCommand
+from .servo_bus import FeetechSTSBus, LewanSoulLX16ABus, RoArmJsonBus, ServoCommand
 
 
 @dataclass
@@ -23,9 +23,15 @@ class RobotController:
             motion_enabled=enable_motion,
         )
         dry_run = not enable_motion
-        if config.serial.protocol != "lewansoul_lx16a":
+        if config.serial.protocol == "lewansoul_lx16a":
+            bus_type = LewanSoulLX16ABus
+        elif config.serial.protocol == "feetech_sts":
+            bus_type = FeetechSTSBus
+        elif config.serial.protocol == "roarm_json":
+            bus_type = RoArmJsonBus
+        else:
             raise ValueError(f"Unsupported servo protocol: {config.serial.protocol}")
-        self.bus = LewanSoulLX16ABus(
+        self.bus = bus_type(
             port=config.serial.port,
             baudrate=config.serial.baudrate,
             timeout_s=config.serial.timeout_s,
@@ -44,14 +50,33 @@ class RobotController:
         with self._lock:
             return {
                 "positions": dict(self.state.positions),
+                "servo_ids": {name: joint.servo_id for name, joint in self.config.joints.items()},
                 "motion_enabled": self.state.motion_enabled,
                 "dry_run": self.dry_run,
+                "protocol": self.config.serial.protocol,
                 "serial_port": self.config.serial.port,
                 "last_actions": list(self.state.last_actions[-10:]),
             }
 
+    def scan_servos(self, start_id: int = 1, end_id: int = 30) -> list[int]:
+        scan = getattr(self.bus, "scan", None)
+        if scan is None:
+            raise ValueError(f"Scan is not implemented for {self.config.serial.protocol}")
+        found = scan(start_id, end_id)
+        with self._lock:
+            self.state.last_actions.append(f"scan {start_id}-{end_id}: {found}")
+        return found
+
     def execute(self, action: dict[str, Any]) -> str:
         kind = str(action.get("type", "")).lower()
+        if kind == "json":
+            send_json = getattr(self.bus, "send_json", None)
+            if send_json is None:
+                raise ValueError(f"JSON commands are not supported by {self.config.serial.protocol}")
+            result = send_json(dict(action.get("payload", {})))
+            with self._lock:
+                self.state.last_actions.append(result)
+            return result
         if kind == "preset":
             return self.move_preset(str(action.get("name", "")))
         if kind == "move_joint":
@@ -75,6 +100,14 @@ class RobotController:
         raise ValueError(f"Unsupported action type: {kind}")
 
     def move_preset(self, name: str) -> str:
+        if self.config.serial.protocol == "roarm_json" and name == "home":
+            send_json = getattr(self.bus, "send_json", None)
+            result = send_json({"T": 100})
+            with self._lock:
+                for joint_name, joint in self.config.joints.items():
+                    self.state.positions[joint_name] = joint.home
+                self.state.last_actions.append(result)
+            return result
         if name not in self.config.presets:
             raise ValueError(f"Unknown preset: {name}")
         commands: list[ServoCommand] = []

@@ -3,34 +3,34 @@
     "port": "COM11",
     "baudrate": 115200,
     "timeout_s": 0.1,
-    "protocol": "lewansoul_lx16a"
+    "protocol": "roarm_json"
   },
   "motion": {
-    "default_duration_ms": 800,
-    "max_step_units": 120,
+    "default_duration_ms": 600,
+    "max_step_units": 12,
     "dry_run": true
   },
   "joints": {
-    "base": { "servo_id": 1, "min": 350, "max": 650, "home": 500 },
-    "shoulder": { "servo_id": 2, "min": 350, "max": 650, "home": 500 },
-    "elbow": { "servo_id": 3, "min": 350, "max": 650, "home": 500 },
-    "wrist": { "servo_id": 4, "min": 350, "max": 650, "home": 500 },
-    "gripper": { "servo_id": 5, "min": 420, "max": 620, "home": 620, "open": 620, "closed": 440 }
+    "base": { "servo_id": 1, "min": -45, "max": 45, "home": 0 },
+    "shoulder": { "servo_id": 2, "min": -35, "max": 35, "home": 0 },
+    "elbow": { "servo_id": 3, "min": -45, "max": 45, "home": 0 },
+    "wrist": { "servo_id": 4, "min": -45, "max": 45, "home": 0 },
+    "gripper": { "servo_id": 6, "min": 0, "max": 90, "home": 45, "open": 90, "closed": 10 }
   },
   "presets": {
     "home": {
-      "base": 500,
-      "shoulder": 500,
-      "elbow": 500,
-      "wrist": 500,
-      "gripper": 620
+      "base": 0,
+      "shoulder": 0,
+      "elbow": 0,
+      "wrist": 0,
+      "gripper": 90
     },
     "ready": {
-      "base": 500,
-      "shoulder": 470,
-      "elbow": 540,
-      "wrist": 500,
-      "gripper": 620
+      "base": 8,
+      "shoulder": 0,
+      "elbow": 0,
+      "wrist": 0,
+      "gripper": 90
     }
   }
 }

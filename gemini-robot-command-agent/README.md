@@ -30,6 +30,17 @@ The `--enable-motion` flag is the final hardware-enable switch. The joint
 limits in `servo_config.json` are still applied before any serial packet is
 written.
 
+The default serial protocol is `roarm_json`, which sends newline-terminated
+Waveshare/RoArm JSON commands over `COM11`. For a transparent ST/SC servo bus,
+change `serial.protocol` to `feetech_sts`.
+
+If the arm does not move while `dry_run=false`, check these first:
+
+- The arm controller is powered and switched on.
+- The USB cable is plugged into the controller port used for serial control.
+- `COM11` is still the CH343/robot controller port.
+- Try `Torque On`, then `JSON Base 10`, then `Legacy Base +` in the UI.
+
 ## Environment
 
 The app loads `GEMINI_API_KEY` or `GOOGLE_API_KEY` from the environment or from

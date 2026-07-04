@@ -32,6 +32,7 @@ PAGE = """
     textarea { width: 100%; min-height: 86px; box-sizing: border-box; background: #17202a; color: #fff; border: 1px solid #334155; padding: 10px; }
     button { background: #1f8a70; color: #fff; border: 0; padding: 10px 14px; margin: 8px 8px 8px 0; cursor: pointer; }
     button.stop { background: #b42318; }
+    button.manual { background: #315a9f; }
     pre { white-space: pre-wrap; background: #17202a; border: 1px solid #334155; padding: 12px; max-height: 58vh; overflow: auto; }
     .status { color: #9ae6b4; font-size: 14px; }
   </style>
@@ -47,13 +48,38 @@ PAGE = """
     <button onclick="startGoal()">Start Goal</button>
     <button onclick="singleStep()">Run One Step</button>
     <button class="stop" onclick="stopGoal()">Stop</button>
+    <h3>Manual Motion Test</h3>
+    <button class="manual" onclick="scanServos()">Scan Servos</button>
+    <button class="manual" onclick="manual({type:'preset', name:'ready'})">Ready</button>
+    <button class="manual" onclick="manual({type:'preset', name:'home'})">Home</button>
+    <br>
+    <button class="manual" onclick="manual({type:'json', payload:{T:100}})">RoArm Home</button>
+    <button class="manual" onclick="manual({type:'json', payload:{T:210,cmd:1}})">Torque On</button>
+    <button class="manual" onclick="manual({type:'json', payload:{T:210,cmd:0}})">Torque Off</button>
+    <br>
+    <button class="manual" onclick="manual({type:'json', payload:{T:121,joint:1,angle:10,spd:1000}})">JSON Base 10</button>
+    <button class="manual" onclick="manual({type:'json', payload:{T:121,joint:1,angle:-10,spd:1000}})">JSON Base -10</button>
+    <button class="manual" onclick="manual({type:'json', payload:{T:101,joint:1,rad:0.18,spd:0,acc:10}})">Legacy Base +</button>
+    <button class="manual" onclick="manual({type:'json', payload:{T:101,joint:1,rad:-0.18,spd:0,acc:10}})">Legacy Base -</button>
+    <br>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:-8})">Base -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'base', delta:8})">Base +</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:-8})">Shoulder -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'shoulder', delta:8})">Shoulder +</button>
+    <br>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:-8})">Elbow -</button>
+    <button class="manual" onclick="manual({type:'nudge_joint', joint:'elbow', delta:8})">Elbow +</button>
+    <button class="manual" onclick="manual({type:'set_gripper', state:'open'})">Open</button>
+    <button class="manual" onclick="manual({type:'set_gripper', state:'closed'})">Close</button>
     <pre id="log"></pre>
   </section>
 </main>
 <script>
 async function api(path, body) {
   const res = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
-  return await res.json();
+  const data = await res.json();
+  if (!res.ok) data.http_error = res.status;
+  return data;
 }
 async function refresh() {
   const res = await fetch('/state');
@@ -61,9 +87,15 @@ async function refresh() {
   document.getElementById('status').textContent = `running=${data.running} dry_run=${data.robot.dry_run} port=${data.robot.serial_port}`;
   document.getElementById('log').textContent = JSON.stringify(data, null, 2);
 }
-async function startGoal() { await api('/goal', {goal: document.getElementById('goal').value}); refresh(); }
-async function singleStep() { await api('/step', {}); refresh(); }
+async function startGoal() { const data = await api('/goal', {goal: document.getElementById('goal').value}); render(data); }
+async function singleStep() { const data = await api('/step', {goal: document.getElementById('goal').value}); render(data); }
 async function stopGoal() { await api('/stop', {}); refresh(); }
+async function manual(action) { const data = await api('/manual', {action}); render(data); }
+async function scanServos() { const data = await api('/scan', {start_id: 1, end_id: 30}); render(data); }
+function render(data) {
+  document.getElementById('status').textContent = `running=${data.running} dry_run=${data.robot.dry_run} port=${data.robot.serial_port} protocol=${data.robot.protocol}`;
+  document.getElementById('log').textContent = JSON.stringify(data, null, 2);
+}
 setInterval(refresh, 1500); refresh();
 </script>
 </body>
@@ -184,12 +216,45 @@ def create_app(enable_motion: bool, config_path: Path) -> Flask:
 
     @app.post("/goal")
     def goal():
-        data = request.get_json(force=True)
-        return jsonify(runner.start_goal(str(data.get("goal", ""))))
+        try:
+            data = request.get_json(force=True)
+            return jsonify(runner.start_goal(str(data.get("goal", ""))))
+        except Exception as exc:
+            return jsonify({"error": str(exc), **runner.snapshot()}), 400
 
     @app.post("/step")
     def step():
-        return jsonify(runner.step_once())
+        try:
+            data = request.get_json(silent=True) or {}
+            if not runner.goal and str(data.get("goal", "")).strip():
+                runner.start_goal(str(data.get("goal", "")))
+            return jsonify(runner.step_once())
+        except Exception as exc:
+            return jsonify({"error": str(exc), **runner.snapshot()}), 400
+
+    @app.post("/manual")
+    def manual():
+        try:
+            data = request.get_json(force=True)
+            result = controller.execute(data.get("action", {}))
+            with runner._lock:
+                runner.last_result = result
+            return jsonify(runner.snapshot())
+        except Exception as exc:
+            return jsonify({"error": str(exc), **runner.snapshot()}), 400
+
+    @app.post("/scan")
+    def scan():
+        try:
+            data = request.get_json(silent=True) or {}
+            found = controller.scan_servos(int(data.get("start_id", 1)), int(data.get("end_id", 30)))
+            with runner._lock:
+                runner.last_result = f"scan found ids: {found}"
+            snapshot = runner.snapshot()
+            snapshot["scan"] = found
+            return jsonify(snapshot)
+        except Exception as exc:
+            return jsonify({"error": str(exc), **runner.snapshot()}), 400
 
     @app.post("/stop")
     def stop():
