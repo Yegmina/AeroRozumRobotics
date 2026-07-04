@@ -84,3 +84,20 @@ before/after camera frames, writes `hardware_evidence.json`, and generates:
 ```text
 ..\output\pdf\robot_hardware_evidence\robot_hardware_evidence_report.pdf
 ```
+
+## Runtime Connection Diagnostics
+
+If the web backend is running and holding `COM11`:
+
+```powershell
+py -3 runtime_hardware_diagnostics.py --via-http --count 0
+```
+
+If the backend is stopped and you want direct serial diagnostics:
+
+```powershell
+py -3 runtime_hardware_diagnostics.py --count 0
+```
+
+It prints available COM ports, scanned servo IDs, live readback positions, and
+position deltas. Add `--log-file logs\hardware_diagnostics.log` to save output.
