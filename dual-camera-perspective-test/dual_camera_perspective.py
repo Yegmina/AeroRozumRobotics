@@ -257,6 +257,9 @@ class PerspectiveMatcher:
         self.max_anchors = max_anchors
         self.anchor_min_spacing = anchor_min_spacing
         self.mutual_check = mutual_check
+        self.homography_min_inlier_ratio = 0.75
+        self.homography_max_median_error = 4.0
+        self.homography_max_p90_error = 9.0
         self._stable_homography: np.ndarray | None = None
         self._locked_homography: np.ndarray | None = None
         self._locked_anchors: list[tuple[tuple[int, int], tuple[int, int]]] = []
@@ -325,11 +328,14 @@ class PerspectiveMatcher:
             if inlier_mask is not None:
                 inliers = int(inlier_mask.sum())
                 inlier_ratio = inliers / max(len(good), 1)
-            homography_accepted = (
-                raw_homography is not None
-                and inliers >= self.min_matches
-                and inlier_ratio >= self.min_inlier_ratio
-                and self._homography_is_reasonable(raw_homography, left.shape, right.shape)
+            homography_accepted = self._homography_fit_is_good(
+                raw_homography,
+                inlier_mask,
+                src,
+                dst,
+                left.shape,
+                right.shape,
+                min_inliers=max(self.min_matches, 10),
             )
             if homography_accepted:
                 homography = self._update_stable_homography(raw_homography, left.shape)
@@ -507,16 +513,66 @@ class PerspectiveMatcher:
                 self.ransac_method,
                 self.ransac_px,
             )
-            if (
-                homography is not None
-                and mask is not None
-                and int(mask.sum()) >= self.min_matches
-                and self._homography_is_reasonable(homography, left_shape, right_shape)
+            if self._homography_fit_is_good(
+                homography,
+                mask,
+                left_points.reshape(-1, 1, 2),
+                right_points.reshape(-1, 1, 2),
+                left_shape,
+                right_shape,
+                min_inliers=max(self.min_matches, 10),
             ):
                 self._locked_homography = self._update_stable_homography(homography, left_shape)
             elif self._locked_homography is None:
                 self._locked_mode = "F_TRACK"
+        elif self._locked_mode == "F_TRACK" and len(left_points) >= self.min_matches:
+            homography, mask = cv2.findHomography(
+                left_points.reshape(-1, 1, 2),
+                right_points.reshape(-1, 1, 2),
+                self.ransac_method,
+                self.ransac_px,
+            )
+            if self._homography_fit_is_good(
+                homography,
+                mask,
+                left_points.reshape(-1, 1, 2),
+                right_points.reshape(-1, 1, 2),
+                left_shape,
+                right_shape,
+                min_inliers=max(self.min_matches, 10),
+            ):
+                self._locked_mode = "H_TRACK"
+                self._locked_homography = self._update_stable_homography(homography, left_shape)
         return True
+
+    def _homography_fit_is_good(
+        self,
+        homography: np.ndarray | None,
+        mask: np.ndarray | None,
+        src: np.ndarray,
+        dst: np.ndarray,
+        left_shape: tuple[int, ...],
+        right_shape: tuple[int, ...],
+        min_inliers: int,
+    ) -> bool:
+        if homography is None or mask is None:
+            return False
+        inlier_mask = mask.reshape(-1).astype(bool)
+        inliers = int(np.count_nonzero(inlier_mask))
+        ratio = inliers / max(len(inlier_mask), 1)
+        if inliers < min_inliers or ratio < self.homography_min_inlier_ratio:
+            return False
+        if not self._homography_is_reasonable(homography, left_shape, right_shape):
+            return False
+
+        projected = cv2.perspectiveTransform(src.reshape(-1, 1, 2), homography).reshape(-1, 2)
+        target = dst.reshape(-1, 2)
+        errors = np.linalg.norm(projected[inlier_mask] - target[inlier_mask], axis=1)
+        if len(errors) == 0:
+            return False
+        median_error = float(np.median(errors))
+        p90_error = float(np.percentile(errors, 90))
+        return median_error <= self.homography_max_median_error and p90_error <= self.homography_max_p90_error
 
     def _fundamental_anchors(self, kp_left, kp_right, matches: list[cv2.DMatch]):
         src = np.float32([kp_left[m.queryIdx].pt for m in matches])
@@ -657,10 +713,16 @@ def label(frame: np.ndarray, text: str, origin: tuple[int, int] = (12, 28)) -> N
     cv2.putText(frame, text, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 0), 2, cv2.LINE_AA)
 
 
-def draw_warp_panel(left: np.ndarray, right: np.ndarray, homography: np.ndarray | None) -> np.ndarray:
+def draw_warp_panel(left: np.ndarray, right: np.ndarray, homography: np.ndarray | None, state: str) -> np.ndarray:
     if homography is None:
         blank = np.full_like(right, 24)
-        label(blank, "No stable homography yet")
+        if state == "F_TRACK":
+            label(blank, "Stable lines: non-planar scene")
+            label(blank, "No single homography fits these depths", (12, 62))
+        elif state == "F_ACQUIRE":
+            label(blank, "Finding stable lines")
+        else:
+            label(blank, "No stable homography yet")
         return np.hstack([right, blank])
 
     warped = cv2.warpPerspective(left, homography, (right.shape[1], right.shape[0]))
@@ -722,7 +784,7 @@ def run(args) -> None:
             label(result.canvas, "RIGHT", (left.shape[1] + 12, 28))
             label(result.canvas, status, (12, result.canvas.shape[0] - 14))
 
-            warp_panel = draw_warp_panel(left, right, result.homography)
+            warp_panel = draw_warp_panel(left, right, result.homography, result.state)
             label(warp_panel, "RIGHT", (12, 28))
             combined = np.vstack([result.canvas, warp_panel])
             cv2.imshow(window, combined)

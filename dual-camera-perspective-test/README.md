@@ -47,3 +47,8 @@ followed frame-to-frame with optical flow.
 `H_TRACK` means the tool also has a planar perspective warp. `F_TRACK` means it
 found stable cross-camera correspondences, but a planar warp is not valid for
 the current object/viewpoint.
+
+A homography only works for a planar target or mostly-flat surface. If the lines
+land on objects at different depths, such as a person, table, wall, and
+foreground object at the same time, the tool will stay in `F_TRACK` and show
+stable lines without a warp.
