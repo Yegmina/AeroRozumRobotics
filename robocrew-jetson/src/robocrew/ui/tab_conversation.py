@@ -1,5 +1,25 @@
 import streamlit as st
 import speech_recognition as sr
+import base64
+
+
+def _render_content_item(item: dict) -> None:
+    """Render Gemini/LangChain multimodal content instead of image placeholders."""
+    if item.get("type") == "text":
+        st.write(item.get("text", ""))
+        return
+
+    if item.get("type") != "image_url":
+        return
+
+    url = item.get("image_url", {}).get("url", "")
+    if not url.startswith("data:image/") or ";base64," not in url:
+        st.caption("Image unavailable")
+        return
+    try:
+        st.image(base64.b64decode(url.split(";base64,", 1)[1]), width="stretch")
+    except Exception:
+        st.caption("Image could not be decoded")
 
 def render_conversation_tab():
     if not st.session_state.agent: return st.info("LLM Agent offline.")
@@ -39,8 +59,7 @@ def render_conversation_tab():
                     if isinstance(msg.content, str): st.write(msg.content)
                     elif isinstance(msg.content, list):
                         for item in msg.content:
-                            if item.get("type") == "text": st.write(item.get("text"))
-                            elif item.get("type") == "image_url": st.markdown("🖼️ *[Image]*")
+                            _render_content_item(item)
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls: st.info(f"⚙️ {tc['name']}")
         
@@ -78,7 +97,9 @@ def render_conversation_tab():
         
         last_msg = st.session_state.agent.message_history[-1]
         
-        if res == "Task finished, going idle." or (last_msg.type == "ai" and not getattr(last_msg, "tool_calls", [])):
+        if res is not None or st.session_state.agent.task is None or (
+            last_msg.type == "ai" and not getattr(last_msg, "tool_calls", [])
+        ):
             st.session_state.agent_active, st.session_state.agent.task = False, None
             
         st.rerun()

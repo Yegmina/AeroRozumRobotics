@@ -10,6 +10,7 @@ from tab_manual import render_manual_tab
 from tab_dataset import render_dataset_tab
 from tab_config import render_config_tab
 from tab_vla import render_vla_tab
+from tab_hardware import render_hardware_tab
 
 logging.getLogger('watchdog').setLevel(logging.ERROR)
 
@@ -55,8 +56,7 @@ if "agent_step" not in st.session_state:
     st.session_state.agent_step = 0
 
 if "init_attempted" not in st.session_state:
-    st.session_state.init_attempted = True
-    init_agent()
+    st.session_state.init_attempted = False
 
 @st.fragment(run_every="2s")
 def render_hardware_health():
@@ -115,7 +115,8 @@ with st.sidebar:
 
     if not st.session_state.agent and not st.session_state.recording_process and not st.session_state.calibration_process:
         st.divider()
-        if st.button("🔄 Retry Initialization", use_container_width=True):
+        if st.button("Initialize Hardware", use_container_width=True):
+            st.session_state.init_attempted = True
             init_agent()
             st.rerun()
 
@@ -142,8 +143,8 @@ elif st.session_state.recording_process:
     st.info("📌 You are currently recording a dataset. Navigation is locked.")
     render_dataset_tab()
 else:
-    tabs = st.tabs(["💬 Conversation", "🛠️ Config", "🦾 VLA Tools", "🎥 VLA Dataset", "🕹️ Manual"])
-    funcs = [render_conversation_tab, render_config_tab, render_vla_tab, render_dataset_tab, render_manual_tab]
+    tabs = st.tabs(["💬 Conversation", "🛠️ Config", "🔍 Hardware", "🦾 VLA Tools", "🎥 VLA Dataset", "🕹️ Manual"])
+    funcs = [render_conversation_tab, render_config_tab, render_hardware_tab, render_vla_tab, render_dataset_tab, render_manual_tab]
     
     for tab, render_func in zip(tabs, funcs):
         with tab:

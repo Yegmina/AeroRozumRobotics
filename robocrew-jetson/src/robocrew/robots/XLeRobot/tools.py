@@ -5,11 +5,8 @@ from pathlib import Path
 import math
 import cv2
 import numpy as np
+from typing import Literal
 from langchain_core.tools import tool  # type: ignore[import]
-from lerobot.async_inference.robot_client import RobotClient
-from lerobot.async_inference.configs import RobotClientConfig
-from lerobot.robots.so_follower.config_so_follower import SOFollowerConfig
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.motors import Motor, MotorNormMode
 from lerobot.motors.feetech import FeetechMotorsBus
 from robocrew.robots.XLeRobot.groot_client import PolicyClient
@@ -113,6 +110,95 @@ def create_go_to_normal_mode(servo_controller):
     return go_to_normal_mode
 
 
+def create_wave_right_hand(servo_controller):
+    @tool
+    def wave_right_hand() -> str:
+        """Make a small right-hand wrist wave when the area around the arm is clear."""
+        if not hasattr(servo_controller, "head_bus"):
+            raise RuntimeError("Right arm bus is not available.")
+
+        # The physical right arm is connected to the head/depth-camera bus.
+        # Servo 5 is wrist roll. Use its current raw position as the reference
+        # because no calibrated arm pose is available yet.
+        bus = servo_controller.head_bus
+        servo_id = 5
+        initial = int(bus.read("Present_Position", servo_id, normalize=False))
+        delta = min(160, initial - 80, 4015 - initial)
+        if delta < 40:
+            raise RuntimeError("Right wrist is too close to a position limit to wave safely.")
+
+        try:
+            for target in (initial + delta, initial - delta, initial + delta, initial):
+                bus.write("Goal_Position", servo_id, target, normalize=False)
+                time.sleep(0.55)
+        finally:
+            bus.write("Goal_Position", servo_id, initial, normalize=False)
+        return "Performed a small right-hand wrist wave and returned to the starting position."
+
+    return wave_right_hand
+
+
+def create_move_arm_joint(servo_controller):
+    @tool
+    def move_arm_joint(
+        arm: Literal["left", "right"],
+        joint: Literal["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"],
+        relative_steps: int,
+    ) -> str:
+        """Move one named arm joint relative to its current position.
+
+        Use only when the arm is clear. `relative_steps` is limited to -300..300
+        (about 26 degrees) to keep direct uncalibrated motions bounded.
+        """
+        step = max(-300, min(300, int(relative_steps)))
+        if step == 0:
+            return "No arm motion requested."
+
+        # Physical wiring is opposite the historical configuration names:
+        # right arm is on the head/depth bus and left arm is on the wheel bus.
+        bus = getattr(servo_controller, "head_bus" if arm == "right" else "wheel_bus", None)
+        if bus is None:
+            raise RuntimeError(f"{arm.title()} arm bus is not available.")
+        servo_id = {
+            "shoulder_pan": 1,
+            "shoulder_lift": 2,
+            "elbow_flex": 3,
+            "wrist_flex": 4,
+            "wrist_roll": 5,
+            "gripper": 6,
+        }[joint]
+        initial = int(bus.read("Present_Position", servo_id, normalize=False))
+        target = max(80, min(4015, initial + step))
+        bus.write("Goal_Position", servo_id, target, normalize=False)
+        time.sleep(0.8)
+        return f"Moved {arm} {joint} from {initial} to {target}."
+
+    return move_arm_joint
+
+
+def create_move_depth_camera(servo_controller):
+    @tool
+    def move_depth_camera(axis: Literal["pan", "tilt"], degrees: float) -> str:
+        """Move the depth camera pan or tilt to a bounded angle in degrees."""
+        if axis == "pan":
+            servo_controller.turn_head_yaw(float(degrees))
+        else:
+            servo_controller.turn_head_pitch(float(degrees))
+        return f"Moved depth camera {axis} to {degrees} degrees."
+
+    return move_depth_camera
+
+
+def create_stop_wheels(servo_controller):
+    @tool
+    def stop_wheels() -> str:
+        """Immediately stop all three drive wheels."""
+        servo_controller._wheels_stop()
+        return "All drive wheels stopped."
+
+    return stop_wheels
+
+
 def create_look_around(servo_controller, main_camera):
     @tool
     def look_around() -> list:
@@ -184,6 +270,12 @@ def create_vla_single_arm_manipulation(
         actions_per_chunk (int, optional): Number of actions VLA calculates at once.
         load_on_startup (bool, optional): Whether to load the VLA policy on startup. If False, the policy will be loaded every time the tool used, which may cause a delay. If True for many tools, you may overload server's GPU.
     """
+    # The async policy stack imports optional model backends. Keep it out of
+    # normal dashboard startup when no VLA tool is configured.
+    from lerobot.async_inference.configs import RobotClientConfig
+    from lerobot.async_inference.robot_client import RobotClient
+    from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+    from lerobot.robots.so_follower.config_so_follower import SOFollowerConfig
 
     right_port = getattr(servo_controler, "right_arm_wheel_usb", None)
     left_port = getattr(servo_controler, "left_arm_head_usb", None)

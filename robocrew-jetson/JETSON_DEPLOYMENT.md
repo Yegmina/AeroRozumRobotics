@@ -50,6 +50,25 @@ The depth camera can be used initially through its RGB stream. Arm cameras
 are configured per VLA manipulation tool. LiDAR is optional and is enabled
 only when `/dev/lidar` exists.
 
+## Verified XLERobot Jetson Wiring
+
+For the connected robot, set these before starting the UI (or add them to
+`.env`):
+
+```dotenv
+ROBOCREW_LEFT_ARM_WHEEL_PORT=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B61035726-if00
+ROBOCREW_RIGHT_ARM_HEAD_PORT=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D040991-if00
+# Set this to the current Orbbec RGB YUYV node after USB reconnects.
+ROBOCREW_CENTER_CAMERA_PORT=/dev/video13
+```
+
+The serial aliases are stable across `/dev/ttyACM*` renumbering.
+`5B61035726` contains one arm's servos `1-6` and wheel servos `7-9`.
+`5B3D040991` contains the other arm's servos `1-6` and head/depth-camera
+servos `7-8`. Orbbec video nodes can renumber after USB reconnects: identify
+the RGB YUYV stream and update `ROBOCREW_CENTER_CAMERA_PORT` before starting
+the UI. Calibrate both arms before enabling VLA manipulation.
+
 ## First Run
 
 Start with camera-only observation and manual hardware checks. Do not give the

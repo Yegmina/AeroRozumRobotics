@@ -4,7 +4,10 @@ import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
+
 import streamlit as st
+from dotenv import load_dotenv
 from robocrew.core.camera import RobotCamera
 from robocrew.core.gemini_config import get_gemini_robotics_langchain_model
 from robocrew.robots.XLeRobot.servo_controls import ServoControler, _check_calibration_file
@@ -18,12 +21,24 @@ from robocrew.robots.XLeRobot.tools import (
     create_strafe_right, \
     create_strafe_left, \
     create_look_around, \
+    create_move_arm_joint, \
+    create_move_depth_camera, \
+    create_stop_wheels, \
+    create_wave_right_hand, \
     create_turn_right, \
     create_turn_left
 )
 
 CALIBRATION_TTYD_PORT = 8283
 VLA_FILE = os.path.join(os.path.expanduser("~"), ".cache", "robocrew", "tools", "vla_tools.json")
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
+
+# XLeRobot Jetson wiring: the left arm shares a bus with the three drive
+# servos, while the right arm shares a bus with the head/depth-camera servos.
+LEFT_ARM_WHEEL_PORT = os.environ.get("ROBOCREW_LEFT_ARM_WHEEL_PORT", "/dev/ttyACM0")
+RIGHT_ARM_HEAD_PORT = os.environ.get("ROBOCREW_RIGHT_ARM_HEAD_PORT", "/dev/ttyACM1")
+CENTER_CAMERA_PORT = os.environ.get("ROBOCREW_CENTER_CAMERA_PORT", "/dev/video10")
 
 def _is_process_running(process) -> bool:
     return process is not None and process.poll() is None
@@ -34,8 +49,10 @@ def _start_calibration_terminal(missing_files: list[str]) -> None:
         return
 
     file_to_port = {
-        "left_arm.json": "/dev/arm_left",
-        "right_arm.json": "/dev/arm_right",
+        # ServoControler currently calls these historical calibration files
+        # from its wheel and head bus constructors respectively.
+        "left_arm.json": RIGHT_ARM_HEAD_PORT,
+        "right_arm.json": LEFT_ARM_WHEEL_PORT,
     }
     pyexe = shlex.quote(sys.executable)
     steps: list[str] = []
@@ -64,7 +81,10 @@ def _get_missing_calibration_files() -> list[str]:
 
 @st.cache_resource
 def get_hardware():
-    return RobotCamera("/dev/camera_center"), ServoControler("/dev/arm_right", "/dev/arm_left")
+    return RobotCamera(CENTER_CAMERA_PORT), ServoControler(
+        right_arm_wheel_usb=LEFT_ARM_WHEEL_PORT,
+        left_arm_head_usb=RIGHT_ARM_HEAD_PORT,
+    )
 
 def init_agent():
     if st.session_state.recording_process:
@@ -72,29 +92,13 @@ def init_agent():
         return
 
     missing_files = _get_missing_calibration_files()
-    calibration_process = st.session_state.get("calibration_process")
-    if not missing_files and calibration_process is not None and calibration_process.poll() is not None:
-        st.session_state.calibration_process = None
-
-    if missing_files:
-        if _is_process_running(calibration_process):
-            st.session_state.init_error = "Calibration in progress."
-            return
-        try:
-            _start_calibration_terminal(missing_files)
-            st.session_state.agent = None
-            st.session_state.init_error = "Calibration started in terminal."
-        except Exception as e:
-            st.session_state.agent = None
-            st.session_state.init_error = f"Failed to start calibration terminal: {e}"
-        return
         
     with st.spinner("Initializing Robot Agent..."):
         try:
             main_camera, servo_controller = get_hardware()
             
             vla_tools = []
-            if os.path.exists(VLA_FILE):
+            if not missing_files and os.path.exists(VLA_FILE):
                 with open(VLA_FILE, "r") as f:
                     for t in json.load(f):
 
@@ -123,6 +127,10 @@ def init_agent():
                 create_go_to_precision_mode(servo_controller),
                 create_go_to_normal_mode(servo_controller),
                 create_look_around(servo_controller, main_camera),
+                create_move_arm_joint(servo_controller),
+                create_move_depth_camera(servo_controller),
+                create_stop_wheels(servo_controller),
+                create_wave_right_hand(servo_controller),
                 finish_task,
             ] + vla_tools
 
@@ -134,7 +142,11 @@ def init_agent():
                 lidar_usb_port="/dev/lidar" if os.path.exists("/dev/lidar") else None,
                 history_len=8
             )
-            st.session_state.init_error = ""
+            st.session_state.init_error = (
+                "Arm calibration files are missing. VLA manipulation is disabled until calibration is completed."
+                if missing_files
+                else ""
+            )
         except Exception as e:
             st.session_state.agent = None
             st.session_state.init_error = str(e)

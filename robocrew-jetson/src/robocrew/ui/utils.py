@@ -2,9 +2,20 @@ import os
 import re
 import socket
 import subprocess
+from pathlib import Path
+
 import streamlit as st
+from dotenv import load_dotenv
 
 RULES_FILE = "/etc/udev/rules.d/99-robocrew.rules"
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
+
+HARDWARE_PATHS = {
+    "camera_center": os.environ.get("ROBOCREW_CENTER_CAMERA_PORT", "/dev/video10"),
+    "arm_left_wheels": os.environ.get("ROBOCREW_LEFT_ARM_WHEEL_PORT", "/dev/ttyACM0"),
+    "arm_right_head": os.environ.get("ROBOCREW_RIGHT_ARM_HEAD_PORT", "/dev/ttyACM1"),
+}
 
 def get_local_ip():
     try:
@@ -45,22 +56,13 @@ def get_hardware_status():
             content = f.read()
         aliases_in_rules.update(re.findall(r'SYMLINK\+="(.*?)"', content))
     
-    aliases = set(["camera_center", "camera_left", "camera_right", "arm_left", "arm_right"])
-    aliases.update(aliases_in_rules)
-    
-    aliases = sorted(list(aliases))
-
     status = {}
     err_msg = st.session_state.get("init_error", "")
     is_recording = st.session_state.recording_process is not None
     
-    for alias in aliases:
-        path = f"/dev/{alias}"
-        is_required = alias in ["camera_center", "camera_left", "camera_right", "arm_left", "arm_right"]
-        
-        if alias not in aliases_in_rules:
-            status[alias] = {"state": "undefined", "label": "No Rule", "required": is_required}
-        elif not os.path.exists(path):
+    for alias, path in HARDWARE_PATHS.items():
+        is_required = True
+        if not os.path.exists(path):
             status[alias] = {"state": "disconnected", "label": "Disconnected", "required": is_required}
         elif is_recording:
             status[alias] = {"state": "warning", "label": "Busy (Recording)", "required": is_required}
@@ -70,4 +72,14 @@ def get_hardware_status():
             status[alias] = {"state": "warning", "label": "Standby", "required": is_required}
         else:
             status[alias] = {"state": "success", "label": "Ready", "required": is_required}
+
+    for alias in sorted(aliases_in_rules):
+        if alias in status:
+            continue
+        path = f"/dev/{alias}"
+        status[alias] = {
+            "state": "success" if os.path.exists(path) else "disconnected",
+            "label": "Ready" if os.path.exists(path) else "Disconnected",
+            "required": False,
+        }
     return status

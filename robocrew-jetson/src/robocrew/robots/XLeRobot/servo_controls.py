@@ -10,6 +10,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Literal, Mapping, Optional
+import serial
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
 from lerobot.motors.feetech import FeetechMotorsBus, OperatingMode
 
@@ -28,6 +29,26 @@ ACTION_MAP = {
 }
 
 HEAD_SERVO_MAP = {"yaw": 7, "pitch": 8}
+
+
+def _servo_responds(port: str, servo_id: int) -> bool:
+    """Probe one optional Feetech servo without making it move."""
+    body = [servo_id, 2, 1]
+    packet = bytes([0xFF, 0xFF, *body, (~sum(body)) & 0xFF])
+    try:
+        with serial.Serial(port, baudrate=1_000_000, timeout=0.15, write_timeout=1.0) as connection:
+            connection.reset_input_buffer()
+            connection.write(packet)
+            connection.flush()
+            response = connection.read(16)
+        return (
+            len(response) >= 6
+            and response[:2] == b"\xff\xff"
+            and response[2] == servo_id
+            and response[4] == 0
+        )
+    except serial.SerialException:
+        return False
 
 
 def _pick_non_degree_norm_mode() -> MotorNormMode:
@@ -122,15 +143,7 @@ def _load_arm_calibration(
 ) -> Dict[int, MotorCalibration]:
     path = _check_calibration_file(file_name)
     if not path.exists():
-        if arm_usb_port:
-            calibration_id = Path(file_name).stem
-            print(f"Calibration file '{path}' not found. Running LeRobot calibration for '{calibration_id}'...")
-            try:
-                _run_lerobot_calibrate(arm_usb_port, calibration_id, path)
-            except Exception as exc:
-                print(f"Warning: auto calibration failed for '{calibration_id}': {exc}")
-        if not path.exists():
-            print(f"Warning: calibration file still missing: '{path}'. Using default calibration.")
+        print(f"Warning: calibration file missing: '{path}'. Using default calibration.")
         return _default_calibration(ids)
 
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -165,7 +178,10 @@ class ServoControler:
         self.speed = speed
         self.action_map = ACTION_MAP if action_map is None else action_map
         self._wheel_ids = tuple(list(self.action_map.values())[0].keys())
-        self._head_ids = tuple(HEAD_SERVO_MAP.values())
+        self._head_ids = tuple(
+            servo_id for servo_id in HEAD_SERVO_MAP.values()
+            if left_arm_head_usb and _servo_responds(left_arm_head_usb, servo_id)
+        )
         self._right_arm_ids = tuple(ARM_SERVO_MAPS["right"].values())
         self._left_arm_ids = tuple(ARM_SERVO_MAPS["left"].values())
         self._arm_positions_right = {name: 0.0 for name in ARM_SERVO_MAPS["right"].keys()}
@@ -212,6 +228,11 @@ class ServoControler:
                 range_max=4095,
             ),
         }
+        head_calibration = {
+            servo_id: calibration
+            for servo_id, calibration in head_calibration.items()
+            if servo_id in {*self._left_arm_ids, *self._head_ids}
+        }
         
         # Initialize FeetechMotorsBus for head motors
         if left_arm_head_usb:
@@ -223,15 +244,17 @@ class ServoControler:
                 port=left_arm_head_usb,
                 motors={
                     **left_arm_motors,
-                    HEAD_SERVO_MAP["yaw"]: Motor(HEAD_SERVO_MAP["yaw"], "sts3215", HEAD_NORM_MODE),
-                    HEAD_SERVO_MAP["pitch"]: Motor(HEAD_SERVO_MAP["pitch"], "sts3215", HEAD_NORM_MODE),
+                    **{
+                        servo_id: Motor(servo_id, "sts3215", HEAD_NORM_MODE)
+                        for servo_id in self._head_ids
+                    },
                 },
                 calibration=head_calibration,
             )
             self.head_bus.connect()
             self.apply_head_modes()
             self.apply_arm_modes()
-            self._head_positions = {HEAD_SERVO_MAP["yaw"]: 0.0, HEAD_SERVO_MAP["pitch"]: 0.0}
+            self._head_positions = {servo_id: 0.0 for servo_id in self._head_ids}
 
 
     def _wheels_stop(self) -> None:
@@ -330,11 +353,15 @@ class ServoControler:
         self._set_torque(False, target)
 
     def turn_head_yaw(self, degrees: float) -> Dict[int, float]:
+        if HEAD_SERVO_MAP["yaw"] not in self._head_ids:
+            return {}
         payload = {HEAD_SERVO_MAP["yaw"]: _clamp(degrees, HEAD_YAW_LIMIT_DEG)}
         self.head_bus.sync_write("Goal_Position", payload)
         self._head_positions.update(payload)
 
     def turn_head_pitch(self, degrees: float) -> Dict[int, float]:
+        if HEAD_SERVO_MAP["pitch"] not in self._head_ids:
+            return {}
         payload = {HEAD_SERVO_MAP["pitch"]: _clamp(degrees, HEAD_PITCH_LIMIT_DEG)}
         self.head_bus.sync_write("Goal_Position", payload)
         self._head_positions.update(payload)
