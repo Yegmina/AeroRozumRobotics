@@ -45,17 +45,39 @@ def render_conversation_tab():
         except: pass
         
         status_container = st.container()
+        grasp = st.session_state.get("grasp_controller")
+        if grasp is not None and grasp.status.get("stage") not in (None, "idle"):
+            st.caption(f"Grasp: {grasp.status.get('stage')} - {grasp.status.get('message', '')}")
                 
     with col_c:
+        reasoning_tokens = getattr(st.session_state.agent, "latest_reasoning_tokens", 0)
+        if reasoning_tokens:
+            st.caption(f"Gemini reasoning used in the latest step: {reasoning_tokens} tokens")
         chat_container = st.container(height=370)
         with chat_container:
             for msg in st.session_state.agent.message_history:
                 if msg.type == "system": continue
+                if (
+                    msg.type == "human"
+                    and isinstance(msg.content, list)
+                    and any(
+                        isinstance(item, dict) and item.get("text") == "Main camera view:"
+                        for item in msg.content
+                    )
+                ):
+                    continue
                 if msg.type == "tool":
                     with st.chat_message("assistant"):
-                        with st.expander(f"🛠️ {msg.name or 'System Action'}"): st.write(msg.content)
+                        label = "Agent observation and plan" if msg.name == "report_observation_and_plan" else (msg.name or "System Action")
+                        with st.expander(f"🛠️ {label}"): st.write(msg.content)
                     continue
-                with st.chat_message("user" if msg.type == "human" else "assistant"):
+                observation = msg.type == "human" and str(getattr(msg, "name", "")).endswith("_observation")
+                with st.chat_message("assistant" if observation else ("user" if msg.type == "human" else "assistant")):
+                    if observation:
+                        with st.expander(str(msg.name).replace("_observation", "").replace("_", " ").title()):
+                            for item in msg.content:
+                                _render_content_item(item)
+                        continue
                     if isinstance(msg.content, str): st.write(msg.content)
                     elif isinstance(msg.content, list):
                         for item in msg.content:
@@ -82,6 +104,9 @@ def render_conversation_tab():
     if st.session_state.agent_active:
         with status_container:
             if st.button("🛑 STOP", use_container_width=True):
+                grasp = st.session_state.get("grasp_controller")
+                if grasp is not None:
+                    grasp.cancel()
                 st.session_state.agent_active, st.session_state.agent.task = False, None
                 st.rerun()
                 

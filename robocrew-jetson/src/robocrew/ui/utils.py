@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import streamlit as st
+from robocrew.robots.XLeRobot.rgbd_client import RGBDServiceClient
 from dotenv import load_dotenv
 
 RULES_FILE = "/etc/udev/rules.d/99-robocrew.rules"
@@ -12,10 +13,22 @@ RULES_FILE = "/etc/udev/rules.d/99-robocrew.rules"
 load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
 
 HARDWARE_PATHS = {
-    "camera_center": os.environ.get("ROBOCREW_CENTER_CAMERA_PORT", "/dev/video10"),
-    "arm_left_wheels": os.environ.get("ROBOCREW_LEFT_ARM_WHEEL_PORT", "/dev/ttyACM0"),
-    "arm_right_head": os.environ.get("ROBOCREW_RIGHT_ARM_HEAD_PORT", "/dev/ttyACM1"),
+    "camera_center": os.environ.get(
+        "ROBOCREW_CENTER_CAMERA_PORT",
+        "/dev/v4l/by-path/platform-3610000.usb-usb-0:2:1.4-video-index0",
+    ),
+    "arm_right_wheels": os.environ.get("ROBOCREW_LEFT_ARM_WHEEL_PORT", "/dev/ttyACM0"),
+    "arm_left_head": os.environ.get("ROBOCREW_RIGHT_ARM_HEAD_PORT", "/dev/ttyACM1"),
 }
+
+
+def _device_available(alias: str, path: str) -> bool:
+    if alias == "camera_center":
+        # The Orbbec SDK owns the USB interfaces directly. Its V4L nodes are
+        # removed while streaming, so the service socket is the source of truth.
+        if RGBDServiceClient(timeout=0.3).health():
+            return True
+    return os.path.exists(path)
 
 def get_local_ip():
     try:
@@ -62,7 +75,7 @@ def get_hardware_status():
     
     for alias, path in HARDWARE_PATHS.items():
         is_required = True
-        if not os.path.exists(path):
+        if not _device_available(alias, path):
             status[alias] = {"state": "disconnected", "label": "Disconnected", "required": is_required}
         elif is_recording:
             status[alias] = {"state": "warning", "label": "Busy (Recording)", "required": is_required}

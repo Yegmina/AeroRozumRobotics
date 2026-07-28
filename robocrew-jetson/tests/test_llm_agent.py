@@ -99,6 +99,7 @@ class TestInvokeTool(unittest.TestCase):
         agent.tool_name_to_tool = {"my_tool": mock_tool}
         tool_msg, _ = agent.invoke_tool({"name": "my_tool", "args": {}, "id": "call_1"})
         self.assertIsInstance(tool_msg, ToolMessage)
+        self.assertEqual(tool_msg.name, "my_tool")
 
     def test_passes_args_to_tool(self):
         agent = make_agent()

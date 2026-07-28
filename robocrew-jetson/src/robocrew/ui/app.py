@@ -11,6 +11,7 @@ from tab_dataset import render_dataset_tab
 from tab_config import render_config_tab
 from tab_vla import render_vla_tab
 from tab_hardware import render_hardware_tab
+from tab_manipulation import render_manipulation_tab
 
 logging.getLogger('watchdog').setLevel(logging.ERROR)
 
@@ -44,6 +45,8 @@ st.markdown("""
 
 if "agent" not in st.session_state:
     st.session_state.agent = None
+if "camera_rig" not in st.session_state:
+    st.session_state.camera_rig = None
 if "init_error" not in st.session_state:
     st.session_state.init_error = ""
 if "recording_process" not in st.session_state:
@@ -54,6 +57,8 @@ if "agent_active" not in st.session_state:
     st.session_state.agent_active = False
 if "agent_step" not in st.session_state:
     st.session_state.agent_step = 0
+if "grasp_controller" not in st.session_state:
+    st.session_state.grasp_controller = None
 
 if "init_attempted" not in st.session_state:
     st.session_state.init_attempted = False
@@ -97,6 +102,8 @@ with st.sidebar:
     if st.button("🛑 EMERGENCY STOP", type="primary", use_container_width=True):
         if st.session_state.agent:
             st.session_state.agent.task = None
+        if st.session_state.grasp_controller:
+            st.session_state.grasp_controller.cancel()
         st.session_state.agent_active = False
         st.session_state.agent_step = 0
         
@@ -119,6 +126,8 @@ with st.sidebar:
             st.session_state.init_attempted = True
             init_agent()
             st.rerun()
+        if st.session_state.init_error:
+            st.error(f"Initialization failed: {st.session_state.init_error}")
 
 missing_required = []
 hw_status = get_hardware_status()
@@ -143,8 +152,8 @@ elif st.session_state.recording_process:
     st.info("📌 You are currently recording a dataset. Navigation is locked.")
     render_dataset_tab()
 else:
-    tabs = st.tabs(["💬 Conversation", "🛠️ Config", "🔍 Hardware", "🦾 VLA Tools", "🎥 VLA Dataset", "🕹️ Manual"])
-    funcs = [render_conversation_tab, render_config_tab, render_hardware_tab, render_vla_tab, render_dataset_tab, render_manual_tab]
+    tabs = st.tabs(["💬 Conversation", "🛠️ Config", "🔍 Hardware", "🎯 Grasp", "🦾 VLA Tools", "🎥 VLA Dataset", "🕹️ Manual"])
+    funcs = [render_conversation_tab, render_config_tab, render_hardware_tab, render_manipulation_tab, render_vla_tab, render_dataset_tab, render_manual_tab]
     
     for tab, render_func in zip(tabs, funcs):
         with tab:

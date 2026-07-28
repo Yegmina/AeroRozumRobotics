@@ -14,28 +14,40 @@ LEFT_BUS = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B61035726-if00"
 RIGHT_BUS = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D040991-if00"
 
 CAMERAS = (
-    ("Left camera", "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0"),
-    ("Right camera", "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"),
-    ("Center camera (Orbbec RGB)", os.environ.get("ROBOCREW_CENTER_CAMERA_PORT", "/dev/video10")),
+    ("Left camera", "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"),
+    ("Right camera", "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"),
+    (
+        "Center camera (Orbbec RGB)",
+        os.environ.get(
+            "ROBOCREW_CENTER_CAMERA_PORT",
+            "/dev/v4l/by-path/platform-3610000.usb-usb-0:2:1.4-video-index0",
+        ),
+    ),
     ("Depth camera (Orbbec depth)", os.environ.get("ROBOCREW_ORBBEC_DEPTH_PORT", "/dev/video4")),
 )
 
+CAMERA_VIEWS = {
+    "Left camera": "left",
+    "Right camera": "right",
+    "Depth camera (Orbbec depth)": "depth",
+}
+
 SERVOS = (
-    ("Left arm shoulder pan", LEFT_BUS, 1, "position"),
-    ("Left arm shoulder lift", LEFT_BUS, 2, "position"),
-    ("Left arm elbow", LEFT_BUS, 3, "position"),
-    ("Left arm wrist flex", LEFT_BUS, 4, "position"),
-    ("Left arm wrist roll", LEFT_BUS, 5, "position"),
-    ("Left arm gripper", LEFT_BUS, 6, "position"),
+    ("Right arm shoulder pan", LEFT_BUS, 1, "position"),
+    ("Right arm shoulder lift", LEFT_BUS, 2, "position"),
+    ("Right arm elbow", LEFT_BUS, 3, "position"),
+    ("Right arm wrist flex", LEFT_BUS, 4, "position"),
+    ("Right arm wrist roll", LEFT_BUS, 5, "position"),
+    ("Right arm gripper", LEFT_BUS, 6, "position"),
     ("Base wheel A", LEFT_BUS, 7, "wheel"),
     ("Base wheel B", LEFT_BUS, 8, "wheel"),
     ("Base wheel C", LEFT_BUS, 9, "wheel"),
-    ("Right arm shoulder pan", RIGHT_BUS, 1, "position"),
-    ("Right arm shoulder lift", RIGHT_BUS, 2, "position"),
-    ("Right arm elbow", RIGHT_BUS, 3, "position"),
-    ("Right arm wrist flex", RIGHT_BUS, 4, "position"),
-    ("Right arm wrist roll", RIGHT_BUS, 5, "position"),
-    ("Right arm gripper", RIGHT_BUS, 6, "position"),
+    ("Left arm shoulder pan", RIGHT_BUS, 1, "position"),
+    ("Left arm shoulder lift", RIGHT_BUS, 2, "position"),
+    ("Left arm elbow", RIGHT_BUS, 3, "position"),
+    ("Left arm wrist flex", RIGHT_BUS, 4, "position"),
+    ("Left arm wrist roll", RIGHT_BUS, 5, "position"),
+    ("Left arm gripper", RIGHT_BUS, 6, "position"),
     ("Depth camera pan", RIGHT_BUS, 7, "position"),
     ("Depth camera tilt", RIGHT_BUS, 8, "position"),
 )
@@ -208,7 +220,14 @@ def render_hardware_tab():
             st.markdown(f"**{name}**")
             st.caption(path)
             if st.button("Refresh", key=f"camera_{name}", use_container_width=True):
-                if name.startswith("Center camera"):
+                camera_rig = st.session_state.get("camera_rig")
+                view = CAMERA_VIEWS.get(name)
+                if camera_rig is not None and view is not None:
+                    try:
+                        frame = camera_rig.capture(view).jpeg_bytes
+                    except Exception:
+                        frame = None
+                elif name.startswith("Center camera"):
                     frame = _capture_agent_rgb()
                 elif name.startswith("Depth camera"):
                     frame = _capture_depth_with_rgb_paused(path)

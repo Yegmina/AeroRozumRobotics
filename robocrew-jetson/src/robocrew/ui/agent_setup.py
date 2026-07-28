@@ -8,25 +8,32 @@ from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
-from robocrew.core.camera import RobotCamera
 from robocrew.core.gemini_config import get_gemini_robotics_langchain_model
+from robocrew.robots.XLeRobot.camera_rig import AuxiliaryCameraRig
+from robocrew.robots.XLeRobot.manipulation import GraspController, ManipulationCalibration
+from robocrew.robots.XLeRobot.rgbd_client import AlignedRGBDCamera, RGBDServiceManager
 from robocrew.robots.XLeRobot.servo_controls import ServoControler, _check_calibration_file
 from robocrew.robots.XLeRobot.xlerobot_LLM_agent import XLeRobotAgent
-from robocrew.core.tools import finish_task
 from robocrew.robots.XLeRobot.tools import (
+    RobotSafetyState, \
     create_go_to_precision_mode, \
     create_go_to_normal_mode, \
+    create_grasp_object, \
+    create_inspect_cameras, \
+    create_inspect_arm_workspace, \
     create_move_backward, \
     create_move_forward, \
     create_strafe_right, \
     create_strafe_left, \
     create_look_around, \
-    create_move_arm_joint, \
     create_move_depth_camera, \
+    create_report_observation_and_plan, \
+    create_scan_drive_path, \
+    create_scan_close_workspace, \
     create_stop_wheels, \
-    create_wave_right_hand, \
     create_turn_right, \
-    create_turn_left
+    create_turn_left, \
+    create_verified_finish_task
 )
 
 CALIBRATION_TTYD_PORT = 8283
@@ -34,11 +41,23 @@ VLA_FILE = os.path.join(os.path.expanduser("~"), ".cache", "robocrew", "tools", 
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
 
-# XLeRobot Jetson wiring: the left arm shares a bus with the three drive
-# servos, while the right arm shares a bus with the head/depth-camera servos.
+# Historical environment names are retained for compatibility. Physically,
+# the right arm shares the wheel bus and the left arm shares the head bus.
 LEFT_ARM_WHEEL_PORT = os.environ.get("ROBOCREW_LEFT_ARM_WHEEL_PORT", "/dev/ttyACM0")
 RIGHT_ARM_HEAD_PORT = os.environ.get("ROBOCREW_RIGHT_ARM_HEAD_PORT", "/dev/ttyACM1")
-CENTER_CAMERA_PORT = os.environ.get("ROBOCREW_CENTER_CAMERA_PORT", "/dev/video10")
+CENTER_CAMERA_PORT = os.environ.get(
+    "ROBOCREW_CENTER_CAMERA_PORT",
+    "/dev/v4l/by-path/platform-3610000.usb-usb-0:2:1.4-video-index0",
+)
+LEFT_CAMERA_PORT = os.environ.get(
+    "ROBOCREW_LEFT_CAMERA_PORT",
+    "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0",
+)
+RIGHT_CAMERA_PORT = os.environ.get(
+    "ROBOCREW_RIGHT_CAMERA_PORT",
+    "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0",
+)
+DEPTH_CAMERA_PORT = os.environ.get("ROBOCREW_ORBBEC_DEPTH_PORT", "/dev/video4")
 
 def _is_process_running(process) -> bool:
     return process is not None and process.poll() is None
@@ -79,12 +98,30 @@ def _get_missing_calibration_files() -> list[str]:
         if not _check_calibration_file(name).exists()
     ]
 
-@st.cache_resource
 def get_hardware():
-    return RobotCamera(CENTER_CAMERA_PORT), ServoControler(
-        right_arm_wheel_usb=LEFT_ARM_WHEEL_PORT,
-        left_arm_head_usb=RIGHT_ARM_HEAD_PORT,
+    rgbd_manager = RGBDServiceManager(
+        socket_path=os.environ.get("ROBOCREW_RGBD_SOCKET", "/tmp/robocrew-orbbec.sock"),
+        python_executable=os.environ.get(
+            "ROBOCREW_ORBBEC_PYTHON",
+            "/home/jetsonl4/aerorozumdatacollectiondepth/.venv/bin/python",
+        ),
     )
+    main_camera = AlignedRGBDCamera(rgbd_manager.ensure_running())
+    try:
+        servo_controller = ServoControler(
+            right_arm_wheel_usb=LEFT_ARM_WHEEL_PORT,
+            left_arm_head_usb=RIGHT_ARM_HEAD_PORT,
+        )
+    except Exception:
+        main_camera.release()
+        raise
+    camera_rig = AuxiliaryCameraRig(
+        main_camera,
+        left_port=LEFT_CAMERA_PORT,
+        right_port=RIGHT_CAMERA_PORT,
+        depth_port=DEPTH_CAMERA_PORT,
+    )
+    return main_camera, servo_controller, camera_rig, rgbd_manager
 
 def init_agent():
     if st.session_state.recording_process:
@@ -92,10 +129,20 @@ def init_agent():
         return
 
     missing_files = _get_missing_calibration_files()
+    main_camera = None
+    servo_controller = None
+    st.session_state.init_error = ""
         
     with st.spinner("Initializing Robot Agent..."):
         try:
-            main_camera, servo_controller = get_hardware()
+            main_camera, servo_controller, camera_rig, rgbd_manager = get_hardware()
+            calibration = ManipulationCalibration.load(servo_controller)
+            grasp_controller = GraspController(
+                servo_controller,
+                main_camera,
+                camera_rig,
+                calibration=calibration,
+            )
             
             vla_tools = []
             if not missing_files and os.path.exists(VLA_FILE):
@@ -117,23 +164,31 @@ def init_agent():
                             load_on_startup=False
                         ))
 
+            safety_state = RobotSafetyState()
             tools = [
-                create_move_forward(servo_controller),
-                create_move_backward(servo_controller),
+                create_move_forward(servo_controller, safety_state=safety_state),
+                create_move_backward(servo_controller, safety_state=safety_state),
                 create_turn_left(servo_controller),
                 create_turn_right(servo_controller),
-                create_strafe_left(servo_controller),
-                create_strafe_right(servo_controller),
+                create_strafe_left(servo_controller, safety_state=safety_state),
+                create_strafe_right(servo_controller, safety_state=safety_state),
                 create_go_to_precision_mode(servo_controller),
                 create_go_to_normal_mode(servo_controller),
+                create_grasp_object(grasp_controller),
+                create_inspect_cameras(camera_rig),
+                create_scan_drive_path(servo_controller, main_camera, camera_rig, safety_state),
+                create_inspect_arm_workspace(camera_rig, safety_state),
+                create_scan_close_workspace(servo_controller, main_camera, camera_rig, safety_state),
                 create_look_around(servo_controller, main_camera),
-                create_move_arm_joint(servo_controller),
                 create_move_depth_camera(servo_controller),
+                create_report_observation_and_plan(),
                 create_stop_wheels(servo_controller),
-                create_wave_right_hand(servo_controller),
-                finish_task,
+                create_verified_finish_task(safety_state),
             ] + vla_tools
 
+            st.session_state.camera_rig = camera_rig
+            st.session_state.rgbd_manager = rgbd_manager
+            st.session_state.grasp_controller = grasp_controller
             st.session_state.agent = XLeRobotAgent(
                 model=get_gemini_robotics_langchain_model(),
                 tools=tools,
@@ -148,6 +203,16 @@ def init_agent():
                 else ""
             )
         except Exception as e:
+            if main_camera is not None:
+                main_camera.release()
+            if servo_controller is not None:
+                try:
+                    servo_controller.disconnect()
+                except Exception:
+                    pass
+            st.session_state.camera_rig = None
+            st.session_state.grasp_controller = None
+            st.session_state.rgbd_manager = None
             st.session_state.agent = None
             st.session_state.init_error = str(e)
             st.error(f"Init failed: {e}")

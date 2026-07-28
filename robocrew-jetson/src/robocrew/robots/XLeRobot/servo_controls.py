@@ -100,6 +100,7 @@ ARM_SERVO_MAPS = {
 }
 DEFAULT_ARM_POSITION_DIR = "~/.cache/robocrew/positions/"
 DEFAULT_ARM_CALIBRATION_DIR = "~/.cache/robocrew/calibrations/robots/so_follower/"
+DEFAULT_CAMERA_FORWARD_CALIBRATION = "~/.cache/robocrew/calibrations/camera_forward.json"
 
 
 def _default_calibration(ids: tuple[int, ...]) -> Dict[int, MotorCalibration]:
@@ -162,6 +163,20 @@ def _load_arm_calibration(
         loaded.setdefault(sid, cal)
     return loaded
 
+
+def _load_camera_forward_pose(path: str = DEFAULT_CAMERA_FORWARD_CALIBRATION) -> Dict[int, int]:
+    calibration_path = Path(path).expanduser()
+    if not calibration_path.exists():
+        return {}
+    try:
+        data = json.loads(calibration_path.read_text(encoding="utf-8"))
+        return {
+            HEAD_SERVO_MAP["yaw"]: int(data["yaw"]),
+            HEAD_SERVO_MAP["pitch"]: int(data["pitch"]),
+        }
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
 class ServoControler:
     """Minimal wheel controller that keeps only basic movement helpers."""
 
@@ -187,8 +202,12 @@ class ServoControler:
         self._arm_positions_right = {name: 0.0 for name in ARM_SERVO_MAPS["right"].keys()}
         self._arm_positions_left = {name: 0.0 for name in ARM_SERVO_MAPS["left"].keys()}
         self._arm_positions = {name: 0.0 for name in ARM_SERVO_MAPS["right"].keys()}
+        self._camera_forward_pose = _load_camera_forward_pose()
+        self._camera_offsets = {"yaw": 0.0, "pitch": 0.0}
         right_arm_calibration = _load_arm_calibration("right_arm.json", self._right_arm_ids, right_arm_wheel_usb)
         left_arm_calibration = _load_arm_calibration("left_arm.json", self._left_arm_ids, left_arm_head_usb)
+        self._right_arm_calibration = right_arm_calibration
+        self._left_arm_calibration = left_arm_calibration
 
         # Initialize FeetechMotorsBus with the three wheel motors
         if right_arm_wheel_usb:
@@ -297,9 +316,78 @@ class ServoControler:
         time.sleep(0.9)
 
     def reset_head_position(self) -> str:
+        if hasattr(self, "head_bus") and self._camera_forward_pose:
+            payload = {
+                servo_id: raw_position
+                for servo_id, raw_position in self._camera_forward_pose.items()
+                if servo_id in self._head_ids
+            }
+            if payload:
+                self.head_bus.sync_write("Goal_Position", payload, normalize=False)
+            self._head_positions.update(self._camera_forward_pose)
+            self._camera_offsets = {"yaw": 0.0, "pitch": 0.0}
+            time.sleep(0.9)
+            return "Camera returned to calibrated forward pose."
         self.turn_head_pitch(22)
         self.turn_head_yaw(0)
+        self._camera_offsets = {"yaw": 0.0, "pitch": 0.0}
         time.sleep(0.9)
+
+    def point_head_relative(
+        self,
+        yaw_degrees: float | None = None,
+        pitch_degrees: float | None = None,
+    ) -> Dict[str, float]:
+        """Point the camera relative to its calibrated forward pose."""
+        requested = {
+            "yaw": self._camera_offsets["yaw"] if yaw_degrees is None else _clamp(yaw_degrees, HEAD_YAW_LIMIT_DEG),
+            "pitch": self._camera_offsets["pitch"] if pitch_degrees is None else _clamp(pitch_degrees, (-15.0, 65.0)),
+        }
+        if not self._camera_forward_pose:
+            self.turn_head_yaw(requested["yaw"])
+            self.turn_head_pitch(max(0.0, requested["pitch"]))
+            self._camera_offsets = requested
+            return requested.copy()
+
+        raw_per_degree = 4095.0 / 360.0
+        payload: Dict[int, int] = {}
+        for axis, offset in requested.items():
+            servo_id = HEAD_SERVO_MAP[axis]
+            if servo_id not in self._head_ids:
+                continue
+            target = int(round(self._camera_forward_pose[servo_id] + offset * raw_per_degree))
+            payload[servo_id] = max(80, min(4015, target))
+        if payload:
+            self.head_bus.sync_write("Goal_Position", payload, normalize=False)
+        self._camera_offsets = requested
+        time.sleep(0.75)
+        return requested.copy()
+
+    def save_camera_forward_pose(self, path: str = DEFAULT_CAMERA_FORWARD_CALIBRATION) -> Dict[int, int]:
+        if not hasattr(self, "head_bus"):
+            raise RuntimeError("Camera servo bus is not available.")
+        required_ids = tuple(HEAD_SERVO_MAP.values())
+        if not all(servo_id in self._head_ids for servo_id in required_ids):
+            raise RuntimeError("Camera pan and tilt servos must both be available to calibrate forward pose.")
+
+        pose = {
+            servo_id: int(self.head_bus.read("Present_Position", servo_id, normalize=False))
+            for servo_id in required_ids
+        }
+        calibration_path = Path(path).expanduser()
+        calibration_path.parent.mkdir(parents=True, exist_ok=True)
+        calibration_path.write_text(
+            json.dumps(
+                {
+                    "yaw": pose[HEAD_SERVO_MAP["yaw"]],
+                    "pitch": pose[HEAD_SERVO_MAP["pitch"]],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        self._camera_forward_pose = pose
+        return pose
 
     def apply_wheel_modes(self) -> None:
         for wid in self._wheel_ids:
@@ -384,6 +472,39 @@ class ServoControler:
 
         self._arm_positions.update({name: float(value) for name, value in positions.items()})
         return self._arm_positions.copy()
+
+    def move_arms_to_middle(self) -> str:
+        """Move both calibrated arms to the middle of every joint range."""
+        middle = {
+            "shoulder_pan": 50.0,
+            "shoulder_lift": 50.0,
+            "elbow_flex": 50.0,
+            "wrist_flex": 50.0,
+            "wrist_roll": 50.0,
+            "gripper": 50.0,
+        }
+        self.set_arm_position(middle, "both")
+        time.sleep(1.5)
+        return "Both arms moved to their calibrated middle positions."
+
+    def move_arm_joint_relative_raw(
+        self,
+        arm: Literal["left", "right"],
+        joint: str,
+        relative_steps: int,
+    ) -> tuple[int, int]:
+        bus = getattr(self, "head_bus" if arm == "left" else "wheel_bus", None)
+        if bus is None:
+            raise RuntimeError(f"{arm.title()} arm bus is not available.")
+        servo_id = ARM_SERVO_MAPS[arm][joint]
+        calibration = (
+            self._left_arm_calibration if arm == "left" else self._right_arm_calibration
+        )[servo_id]
+        initial = int(bus.read("Present_Position", servo_id, normalize=False))
+        target = max(calibration.range_min, min(calibration.range_max, initial + relative_steps))
+        bus.sync_write("Goal_Position", {servo_id: target}, normalize=False)
+        time.sleep(1.0)
+        return initial, target
 
     def read_arm_present_position(self, arm_side: Literal["left", "right", "both"] = "both") -> Dict[str, float]:
         right_map = ARM_SERVO_MAPS["right"]

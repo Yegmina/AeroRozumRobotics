@@ -71,6 +71,7 @@ class LLMAgent():
 
         self.task = None
         self.idle = True
+        self.latest_reasoning_tokens = 0
         self.navigation_mode = "normal"  # or "precision"
 
         if skills:
@@ -97,7 +98,10 @@ class LLMAgent():
 
         if self.servo_controler and self.servo_controler.left_arm_head_usb:
             self.servo_controler.reset_head_position()
-            self.servo_controler.set_saved_position("default", "both")  # optionally if you have saved positions (example 5_xlerobot_test_save_recall_positions), set a default position for both arms before starting the agent.
+            if hasattr(self.servo_controler, "move_arms_to_middle"):
+                self.servo_controler.move_arms_to_middle()
+            else:
+                self.servo_controler.set_saved_position("default", "both")
 
 
     def invoke_tool(self, tool_call):
@@ -107,17 +111,28 @@ class LLMAgent():
         tool_output = requested_tool.invoke(args)
         # f aitional output is present
         if isinstance(tool_output, tuple) and len(tool_output) == 2:
-            additional_output = HumanMessage(content=tool_output[1])
+            additional_output = HumanMessage(
+                content=tool_output[1],
+                name=f"{tool_call['name']}_observation",
+            )
             tool_output = tool_output[0]
         else:
             additional_output = None
-        return ToolMessage(tool_output, tool_call_id=tool_call["id"]), additional_output
+        return ToolMessage(
+            tool_output,
+            tool_call_id=tool_call["id"],
+            name=tool_call["name"],
+        ), additional_output
     
     def cut_off_context(self, nr_of_loops):
         """
         Trims the message history in the state to keep only the most recent context for the agent.
         """        
-        ai_indices = [i for i, msg in enumerate(self.message_history) if msg.type == "human"]
+        ai_indices = [
+            i for i, msg in enumerate(self.message_history)
+            if msg.type == "human"
+            and not str(getattr(msg, "name", "")).endswith("_observation")
+        ]
         if len(ai_indices) >= nr_of_loops:
             start_index = ai_indices[-nr_of_loops]
             self.message_history = [self.system_message] + self.message_history[start_index:]
@@ -152,6 +167,7 @@ class LLMAgent():
         response = self.llm.invoke(self.message_history)
         print(response.content)
         reasoning_tokens = response.usage_metadata.get('output_token_details', {}).get('reasoning', 0)
+        self.latest_reasoning_tokens = int(reasoning_tokens or 0)
         if reasoning_tokens:
             print(f"[thinking: {reasoning_tokens} tokens]")
         for tool_call in response.tool_calls:
@@ -175,6 +191,8 @@ class LLMAgent():
             elif tool_call["name"] == "go_to_normal_mode":
                 self.navigation_mode = "normal"
             if tool_call["name"] == "finish_task":
+                if str(tool_response.content).startswith("BLOCKED:"):
+                    continue
                 report = tool_call["args"].get("report", "Task finished")
                 self.task = None
                 self.idle = True

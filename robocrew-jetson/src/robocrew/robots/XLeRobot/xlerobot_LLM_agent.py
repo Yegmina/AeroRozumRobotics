@@ -48,6 +48,31 @@ class XLeRobotAgent(LLMAgent):
 				"Use it to communicate important updates, greet users, or answer their questions verbally."
 			)
 
+		system_prompt = (system_prompt or base_system_prompt) + (
+
+			" You always receive the center Orbbec RGB view. Use `inspect_cameras` "
+			"when a task needs the left or right arm workspace, side visibility, or "
+			"depth-based obstacle distance. Request all auxiliary views in one call "
+			"when they are all needed, and do not repeatedly capture unchanged views. "
+			"Before every wheel, camera, or arm movement, call "
+			"`report_observation_and_plan` with a concise, factual observation and "
+			"the immediate next action. This is a public status update for the operator. "
+			"Call the status tool and the announced action together in the same response, "
+			"with the status call first. If only the status tool was accepted, your next "
+			"response must execute the announced action without reporting again. Never "
+			"call `report_observation_and_plan` twice in succession. "
+			"Before every forward, backward, or sideways movement, run "
+			"`scan_drive_path` and use its downward RGB and depth views to check for "
+			"low obstacles around the base. A translation without this fresh scan is blocked. "
+			"For tabletop manipulation, never plan individual joint movements. Call "
+			"`grasp_object` exactly once with the user's target description, requested arm "
+			"(or auto), and action: touch, grasp, or grasp_and_lift. That controller owns "
+			"aligned RGB-D measurement, safe base approach, Cartesian IK, wrist-camera "
+			"validation, load-monitored closure, and verification. If it returns AMBIGUOUS, "
+			"show the numbered candidates and ask the operator which candidate to use. "
+			"Never claim manipulation success when `grasp_object` reports BLOCKED or FAILED."
+		)
+
 		super().__init__(
 			model=model,
 			tools=tools,

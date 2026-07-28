@@ -58,16 +58,20 @@ For the connected robot, set these before starting the UI (or add them to
 ```dotenv
 ROBOCREW_LEFT_ARM_WHEEL_PORT=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B61035726-if00
 ROBOCREW_RIGHT_ARM_HEAD_PORT=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D040991-if00
-# Set this to the current Orbbec RGB YUYV node after USB reconnects.
-ROBOCREW_CENTER_CAMERA_PORT=/dev/video13
+ROBOCREW_LEFT_CAMERA_PORT=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0
+ROBOCREW_RIGHT_CAMERA_PORT=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0
+ROBOCREW_ORBBEC_DEPTH_PORT=/dev/video4
+ROBOCREW_CENTER_CAMERA_PORT=/dev/v4l/by-path/platform-3610000.usb-usb-0:2:1.4-video-index0
+ROBOCREW_RGBD_SOCKET=/tmp/robocrew-orbbec.sock
+ROBOCREW_ORBBEC_PYTHON=/home/jetsonl4/aerorozumdatacollectiondepth/.venv/bin/python
 ```
 
 The serial aliases are stable across `/dev/ttyACM*` renumbering.
-`5B61035726` contains one arm's servos `1-6` and wheel servos `7-9`.
-`5B3D040991` contains the other arm's servos `1-6` and head/depth-camera
-servos `7-8`. Orbbec video nodes can renumber after USB reconnects: identify
-the RGB YUYV stream and update `ROBOCREW_CENTER_CAMERA_PORT` before starting
-the UI. Calibrate both arms before enabling VLA manipulation.
+`5B61035726` contains the physical right arm's servos `1-6` and wheel servos
+`7-9`. `5B3D040991` contains the physical left arm's servos `1-6` and
+head/depth-camera servos `7-8`. Orbbec video nodes can renumber after USB reconnects: identify
+the RGB YUYV and Z16 depth streams and update the Orbbec environment paths
+before starting the UI. Calibrate both arms before enabling VLA manipulation.
 
 ## First Run
 

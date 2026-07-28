@@ -17,13 +17,48 @@ import time
 import threading
 
 
-def create_move_forward(servo_controller, sound_receiver=None):
+class RobotSafetyState:
+    """Tracks camera checks that must precede physical movement."""
+
+    def __init__(self):
+        self.drive_path_checked = False
+        self.arm_camera_checked = {"left": False, "right": False}
+        self.arm_motion_unverified = {"left": False, "right": False}
+
+    def mark_drive_path_checked(self) -> None:
+        self.drive_path_checked = True
+
+    def consume_drive_path_check(self) -> bool:
+        checked = self.drive_path_checked
+        self.drive_path_checked = False
+        return checked
+
+    def mark_arm_camera_checked(self, arm: str) -> None:
+        self.arm_camera_checked[arm] = True
+        self.arm_motion_unverified[arm] = False
+
+    def consume_arm_camera_check(self, arm: str) -> bool:
+        checked = self.arm_camera_checked[arm]
+        self.arm_camera_checked[arm] = False
+        return checked
+
+    def mark_arm_moved(self, arm: str) -> None:
+        self.arm_motion_unverified[arm] = True
+
+    def unverified_arms(self) -> list[str]:
+        return [arm for arm, unverified in self.arm_motion_unverified.items() if unverified]
+
+
+def create_move_forward(servo_controller, sound_receiver=None, safety_state=None):
     @tool
     @stop_listening_during_tool_execution(sound_receiver)
     def move_forward(distance_meters: float) -> str:
         """Drives the robot forward (or backward) for a specific distance."""
 
+        if safety_state and not safety_state.consume_drive_path_check():
+            return "BLOCKED: run scan_drive_path before translating the robot."
         distance = float(distance_meters)
+        servo_controller.reset_head_position()
         if distance >= 0:
             servo_controller.go_forward(distance)
         else:
@@ -32,13 +67,16 @@ def create_move_forward(servo_controller, sound_receiver=None):
 
     return move_forward
 
-def create_move_backward(servo_controller, sound_receiver=None):
+def create_move_backward(servo_controller, sound_receiver=None, safety_state=None):
     @tool
     @stop_listening_during_tool_execution(sound_receiver)
     def move_backward(distance_meters: float) -> str:
         """Drives the robot forward (or backward) for a specific distance."""
 
+        if safety_state and not safety_state.consume_drive_path_check():
+            return "BLOCKED: run scan_drive_path before translating the robot."
         distance = float(distance_meters)
+        servo_controller.reset_head_position()
         servo_controller.go_backward(distance)
         return f"Moved backward {distance} meters."
 
@@ -69,23 +107,29 @@ def create_turn_left(servo_controller, sound_receiver=None):
     return turn_left
 
 
-def create_strafe_left(servo_controller, sound_receiver=None):
+def create_strafe_left(servo_controller, sound_receiver=None, safety_state=None):
     @tool
     @stop_listening_during_tool_execution(sound_receiver)
     def strafe_left(distance_meters: float) -> str:
         """Moves the robot sideways left by a specific distance in meters."""
+        if safety_state and not safety_state.consume_drive_path_check():
+            return "BLOCKED: run scan_drive_path before translating the robot."
         distance = float(distance_meters)
+        servo_controller.reset_head_position()
         servo_controller.strafe_left(distance)
         return f"Strafed left by {distance} meters."
 
     return strafe_left
 
-def create_strafe_right(servo_controller, sound_receiver=None):
+def create_strafe_right(servo_controller, sound_receiver=None, safety_state=None):
     @tool
     @stop_listening_during_tool_execution(sound_receiver)
     def strafe_right(distance_meters: float) -> str:
         """Moves the robot sideways right by a specific distance in meters."""
+        if safety_state and not safety_state.consume_drive_path_check():
+            return "BLOCKED: run scan_drive_path before translating the robot."
         distance = float(distance_meters)
+        servo_controller.reset_head_position()
         servo_controller.strafe_right(distance)
         return f"Strafed right by {distance} meters."
 
@@ -114,13 +158,13 @@ def create_wave_right_hand(servo_controller):
     @tool
     def wave_right_hand() -> str:
         """Make a small right-hand wrist wave when the area around the arm is clear."""
-        if not hasattr(servo_controller, "head_bus"):
+        if not hasattr(servo_controller, "wheel_bus"):
             raise RuntimeError("Right arm bus is not available.")
 
-        # The physical right arm is connected to the head/depth-camera bus.
+        # The physical right arm shares the wheel bus.
         # Servo 5 is wrist roll. Use its current raw position as the reference
         # because no calibrated arm pose is available yet.
-        bus = servo_controller.head_bus
+        bus = servo_controller.wheel_bus
         servo_id = 5
         initial = int(bus.read("Present_Position", servo_id, normalize=False))
         delta = min(160, initial - 80, 4015 - initial)
@@ -138,7 +182,7 @@ def create_wave_right_hand(servo_controller):
     return wave_right_hand
 
 
-def create_move_arm_joint(servo_controller):
+def create_move_arm_joint(servo_controller, safety_state=None):
     @tool
     def move_arm_joint(
         arm: Literal["left", "right"],
@@ -147,31 +191,24 @@ def create_move_arm_joint(servo_controller):
     ) -> str:
         """Move one named arm joint relative to its current position.
 
-        Use only when the arm is clear. `relative_steps` is limited to -300..300
-        (about 26 degrees) to keep direct uncalibrated motions bounded.
+        Use only when the arm is clear. `relative_steps` is limited to -600..600
+        and the target is clamped to that joint's calibrated physical range.
+        For both arms, positive shoulder_pan moves right and positive
+        shoulder_lift moves up; negative values move left and down respectively.
         """
-        step = max(-300, min(300, int(relative_steps)))
+        if safety_state and not safety_state.consume_arm_camera_check(arm):
+            return f"BLOCKED: run inspect_arm_workspace with arm='{arm}' before moving that arm."
+        step = max(-600, min(600, int(relative_steps)))
         if step == 0:
             return "No arm motion requested."
 
-        # Physical wiring is opposite the historical configuration names:
-        # right arm is on the head/depth bus and left arm is on the wheel bus.
-        bus = getattr(servo_controller, "head_bus" if arm == "right" else "wheel_bus", None)
-        if bus is None:
-            raise RuntimeError(f"{arm.title()} arm bus is not available.")
-        servo_id = {
-            "shoulder_pan": 1,
-            "shoulder_lift": 2,
-            "elbow_flex": 3,
-            "wrist_flex": 4,
-            "wrist_roll": 5,
-            "gripper": 6,
-        }[joint]
-        initial = int(bus.read("Present_Position", servo_id, normalize=False))
-        target = max(80, min(4015, initial + step))
-        bus.write("Goal_Position", servo_id, target, normalize=False)
-        time.sleep(0.8)
-        return f"Moved {arm} {joint} from {initial} to {target}."
+        # Both physical shoulder-lift servos raise the hand when their raw
+        # positions decrease.
+        physical_step = -step if joint == "shoulder_lift" else step
+        initial, target = servo_controller.move_arm_joint_relative_raw(arm, joint, physical_step)
+        if safety_state:
+            safety_state.mark_arm_moved(arm)
+        return f"Moved {arm} {joint} from {initial} to {target} (semantic step {step})."
 
     return move_arm_joint
 
@@ -179,12 +216,12 @@ def create_move_arm_joint(servo_controller):
 def create_move_depth_camera(servo_controller):
     @tool
     def move_depth_camera(axis: Literal["pan", "tilt"], degrees: float) -> str:
-        """Move the depth camera pan or tilt to a bounded angle in degrees."""
+        """Move camera pan or tilt relative to the calibrated forward pose."""
         if axis == "pan":
-            servo_controller.turn_head_yaw(float(degrees))
+            servo_controller.point_head_relative(yaw_degrees=float(degrees))
         else:
-            servo_controller.turn_head_pitch(float(degrees))
-        return f"Moved depth camera {axis} to {degrees} degrees."
+            servo_controller.point_head_relative(pitch_degrees=float(degrees))
+        return f"Moved depth camera {axis} to {degrees} degrees from calibrated forward."
 
     return move_depth_camera
 
@@ -199,29 +236,244 @@ def create_stop_wheels(servo_controller):
     return stop_wheels
 
 
+def create_report_observation_and_plan():
+    @tool
+    def report_observation_and_plan(observation: str, next_action: str) -> str:
+        """Publish a short, user-visible observation and next action.
+
+        Use this before a movement or arm action. State only what is directly
+        visible from the cameras/sensors and the immediate next action. Do not
+        claim that an object or person was found unless it is visible.
+        """
+        return (
+            f"Observation: {observation}\nNext action: {next_action}\n"
+            "Status published. Execute that action now; do not publish another "
+            "status update until an action or camera inspection has run."
+        )
+
+    return report_observation_and_plan
+
+
+def create_inspect_cameras(camera_rig):
+    @tool
+    def inspect_cameras(
+        views: list[Literal["left", "right", "depth", "all"]],
+    ) -> tuple[str, list[dict]]:
+        """Capture extra robot camera views for visual reasoning.
+
+        Request `left` or `right` to inspect an arm/workspace, `depth` for
+        obstacle distance, or `all` for all three auxiliary views. Center RGB
+        is already supplied automatically and does not need to be requested.
+        """
+        requested: list[str] = []
+        for view in views:
+            expanded = ("left", "right", "depth") if view == "all" else (view,)
+            for item in expanded:
+                if item not in requested:
+                    requested.append(item)
+
+        if not requested:
+            return "No auxiliary camera views were requested.", [
+                {"type": "text", "text": "No auxiliary camera views were requested."}
+            ]
+
+        content: list[dict] = []
+        captured: list[str] = []
+        unavailable: list[str] = []
+        for view in requested:
+            try:
+                observation = camera_rig.capture(view)
+                label = observation.label
+                if observation.details:
+                    label = f"{label}\n{observation.details}"
+                content.extend([
+                    {"type": "text", "text": label},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64.b64encode(observation.jpeg_bytes).decode('ascii')}"
+                        },
+                    },
+                ])
+                captured.append(view)
+            except Exception as error:
+                content.append({"type": "text", "text": f"{view.title()} camera unavailable: {error}"})
+                unavailable.append(view)
+
+        summary = f"Captured auxiliary camera views: {', '.join(captured) or 'none'}."
+        if unavailable:
+            summary += f" Unavailable: {', '.join(unavailable)}."
+        return summary, content
+
+    return inspect_cameras
+
+
+def create_scan_drive_path(servo_controller, main_camera, camera_rig, safety_state):
+    @tool
+    def scan_drive_path() -> tuple[str, list[dict]]:
+        """Look down and inspect RGB plus depth immediately in front of the base.
+
+        Run this before each forward, backward, or sideways translation so low
+        obstacles near the wheels are checked. The camera returns to calibrated
+        forward afterward.
+        """
+        try:
+            servo_controller.point_head_relative(yaw_degrees=0, pitch_degrees=38)
+            rgb_bytes = main_camera.capture_image(camera_fov=90, center_angle=0, navigation_mode="precision")
+            depth = camera_rig.capture("depth")
+        finally:
+            servo_controller.reset_head_position()
+
+        safety_state.mark_drive_path_checked()
+        content = [
+            {"type": "text", "text": "Downward drive-path RGB view"},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(rgb_bytes).decode('ascii')}"},
+            },
+            {"type": "text", "text": f"Downward drive-path depth\n{depth.details}"},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(depth.jpeg_bytes).decode('ascii')}"},
+            },
+        ]
+        return "Checked the low drive path with downward RGB and depth.", content
+
+    return scan_drive_path
+
+
+def create_inspect_arm_workspace(camera_rig, safety_state):
+    @tool
+    def inspect_arm_workspace(arm: Literal["left", "right"]) -> tuple[str, list[dict]]:
+        """Inspect one arm using that arm's own camera plus center depth.
+
+        Run immediately before every movement of that arm and immediately after
+        its final movement to visually validate the target and result.
+        """
+        arm_view = camera_rig.capture(arm)
+        depth = camera_rig.capture("depth")
+        safety_state.mark_arm_camera_checked(arm)
+        content = [
+            {"type": "text", "text": f"{arm.title()} arm camera workspace"},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(arm_view.jpeg_bytes).decode('ascii')}"},
+            },
+            {"type": "text", "text": f"Center depth for {arm} arm validation\n{depth.details}"},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(depth.jpeg_bytes).decode('ascii')}"},
+            },
+        ]
+        return f"Inspected the {arm} arm workspace with its own camera and depth.", content
+
+    return inspect_arm_workspace
+
+
+def create_verified_finish_task(safety_state):
+    @tool("finish_task")
+    def finish_task(report: str = "Task finished") -> str:
+        """Finish only after camera validation of any arm movement."""
+        unverified = safety_state.unverified_arms()
+        if unverified:
+            return (
+                "BLOCKED: inspect_arm_workspace must validate the latest movement "
+                f"for arm(s): {', '.join(unverified)} before finishing."
+            )
+        return report
+
+    return finish_task
+
+
+def create_grasp_object(grasp_controller):
+    @tool
+    def grasp_object(
+        target_description: str,
+        arm: Literal["auto", "left", "right"] = "auto",
+        action: Literal["touch", "grasp", "grasp_and_lift"] = "grasp_and_lift",
+        candidate_id: int | None = None,
+    ) -> tuple[str, list[dict]]:
+        """Find and manipulate an upright can-like tabletop object.
+
+        This is the only conversation tool for arm manipulation. It performs
+        aligned RGB-D target measurement, bounded base approach, Cartesian IK,
+        wrist-camera validation, load-monitored gripper closure, and optional
+        lift verification. Use candidate_id only after the operator resolves an
+        ambiguous numbered-candidate image.
+        """
+        return grasp_controller.execute(target_description, arm, action, candidate_id)
+
+    return grasp_object
+
+
+def create_scan_close_workspace(servo_controller, main_camera, camera_rig, safety_state=None):
+    @tool
+    def scan_close_workspace() -> tuple[str, list[dict]]:
+        """Sweep the close workspace with paired center RGB and depth views.
+
+        Use this to locate a tabletop object before reaching, and again after
+        reaching to verify the gripper's position. It scans down-center,
+        down-left, and down-right relative to the calibrated forward pose.
+        """
+        poses = (
+            (0.0, 28.0, "Down-center workspace"),
+            (-35.0, 28.0, "Down-left workspace"),
+            (35.0, 28.0, "Down-right workspace"),
+        )
+        content: list[dict] = []
+        completed: list[str] = []
+        try:
+            for yaw, pitch, label in poses:
+                servo_controller.point_head_relative(yaw_degrees=yaw, pitch_degrees=pitch)
+                rgb_bytes = main_camera.capture_image(camera_fov=90, center_angle=yaw, navigation_mode="precision")
+                depth = camera_rig.capture("depth")
+                content.extend([
+                    {"type": "text", "text": f"{label} RGB (pan {yaw:+.0f}°, tilt {pitch:+.0f}°)"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(rgb_bytes).decode('ascii')}"},
+                    },
+                    {"type": "text", "text": f"{label} depth\n{depth.details}"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(depth.jpeg_bytes).decode('ascii')}"},
+                    },
+                ])
+                completed.append(label)
+        finally:
+            servo_controller.reset_head_position()
+
+        if safety_state:
+            safety_state.mark_drive_path_checked()
+        summary = "Scanned close workspace with RGB and depth: " + ", ".join(completed) + "."
+        return summary, content
+
+    return scan_close_workspace
+
+
 def create_look_around(servo_controller, main_camera):
     @tool
     def look_around() -> list:
         """Look around yourself to find a thing you looking for or to understand an envinronment."""
         movement_delay = 0.9  # seconds
         print("Looking around...")
-        servo_controller.turn_head_yaw(-120)
+        servo_controller.point_head_relative(yaw_degrees=-120, pitch_degrees=0)
         time.sleep(movement_delay)
         image_1 = main_camera.capture_image(center_angle=-120)
         image_1_64 = base64.b64encode(image_1).decode('utf-8')
-        servo_controller.turn_head_yaw(-40)
+        servo_controller.point_head_relative(yaw_degrees=-40, pitch_degrees=0)
         time.sleep(movement_delay)
         image_2 = main_camera.capture_image(center_angle=-40)
         image_2_64 = base64.b64encode(image_2).decode('utf-8')  
-        servo_controller.turn_head_yaw(40)
+        servo_controller.point_head_relative(yaw_degrees=40, pitch_degrees=0)
         time.sleep(movement_delay)
         image_3 = main_camera.capture_image(center_angle=40)
         image_3_64 = base64.b64encode(image_3).decode('utf-8')
-        servo_controller.turn_head_yaw(120)
+        servo_controller.point_head_relative(yaw_degrees=120, pitch_degrees=0)
         time.sleep(movement_delay)
         image_4 = main_camera.capture_image(center_angle=120)
         image_4_64 = base64.b64encode(image_4).decode('utf-8')
-        servo_controller.turn_head_yaw(0)  # look forward again
+        servo_controller.reset_head_position()
         time.sleep(movement_delay)
 
         return "Looked around", [
